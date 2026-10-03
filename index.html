@@ -21,14 +21,10 @@
       font-size: 16px; font-weight: bold; color: #e60012; margin-bottom: 8px;
       text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 6px;
     }
-    .control-panel input, .control-panel select, .control-panel button {
+    .control-panel input, .control-panel select {
       padding: 7px 10px; font-size: 13px; margin: 4px 0; width: 100%;
       box-sizing: border-box; border: 1.5px solid #ccc; border-radius: 6px;
       background-color: #fff;
-    }
-    .control-panel button {
-      background-color: #e60012; color: white; border: none; font-weight: bold;
-      cursor: pointer; margin-top: 6px;
     }
     .control-panel input:focus, .control-panel select:focus {
       border-color: #e60012; outline: none;
@@ -44,17 +40,15 @@
   <div class="control-panel">
     <div class="panel-title">🚌 九巴實時地圖</div>
     
-    <label style="color: #444; font-weight: bold;">輸入九巴路線：</label>
-    <input type="text" id="routeInput" value="67M" placeholder="例: 67M, 58X, 960">
+    <label style="color: #444; font-weight: bold;">搜尋/輸入路線：</label>
+    <input type="text" id="routeInput" value="67M" placeholder="輸入數字 (例: 67M, 58X, 960)" oninput="onRouteInputChanged()">
     
-    <button onclick="searchRoute()">搜尋路線</button>
-
     <label style="color: #444; font-weight: bold; margin-top: 6px; display: block;">選擇目的地：</label>
     <select id="boundSelect" onchange="loadSelectedBound()">
-      <option value="">請先搜尋路線...</option>
+      <option value="">載入路線目的地中...</option>
     </select>
     
-    <div class="status-text" id="status">正在初始化車站數據...</div>
+    <div class="status-text" id="status">正在初始化系統...</div>
   </div>
 
   <div id="map"></div>
@@ -80,7 +74,7 @@
       iconAnchor: [16, 16]
     });
 
-    // 初始化：僅下載輕量級的車站座標字典
+    // 初始化：下載全港車站數據
     async function initSystem() {
       const statusEl = document.getElementById('status');
       try {
@@ -90,40 +84,43 @@
           allStopsMap[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
         });
 
-        statusEl.innerText = '系統就緒，點擊搜尋載入 67M';
-        searchRoute(); // 預設搜尋 67M
+        statusEl.innerText = '車站數據就緒！';
+        onRouteInputChanged(); // 預設載入 67M
 
       } catch (err) {
         console.error(err);
-        statusEl.innerText = '載入車站基礎數據失敗';
+        statusEl.innerText = '載入車站數據失敗';
       }
     }
 
-    // 按需搜尋特定路線目的地
-    async function searchRoute() {
+    // 當輸入框改變時，直接向九巴 API 查詢該路線對應的所有方向 (Outbound / Inbound)
+    async function onRouteInputChanged() {
       const statusEl = document.getElementById('status');
       const routeVal = document.getElementById('routeInput').value.trim().toUpperCase();
 
       if (!routeVal) return;
       currentRoute = routeVal;
-      statusEl.innerText = `搜尋 ${currentRoute} 目的地中...`;
+      statusEl.innerText = `搜尋 ${currentRoute} 中...`;
 
       try {
-        // 直接讀取該路線方向
-        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route/${currentRoute}`);
+        // 向 API 請求對應路線
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route`);
         const data = await res.json();
 
-        if (!data.data || data.data.length === 0) {
-          statusEl.innerText = `搵唔到路線 ${currentRoute}`;
+        // 正確由前端篩選匹配路線 (如 960)
+        const matchedRoutes = (data.data || []).filter(r => r.route === currentRoute);
+
+        if (matchedRoutes.length === 0) {
+          statusEl.innerText = `搵唔到路線 ${currentRoute}！`;
           return;
         }
 
         const boundSelectEl = document.getElementById('boundSelect');
         boundSelectEl.innerHTML = '';
 
-        // 只取服務類型 1 (主要服務班次)
-        const mainBounds = data.data.filter(r => r.service_type === '1');
-        const boundsToUse = mainBounds.length > 0 ? mainBounds : data.data;
+        // 只取主要班次 (service_type === '1')
+        const mainBounds = matchedRoutes.filter(r => r.service_type === '1');
+        const boundsToUse = mainBounds.length > 0 ? mainBounds : matchedRoutes;
 
         boundsToUse.forEach(item => {
           const opt = document.createElement('option');
@@ -141,7 +138,7 @@
       }
     }
 
-    // 載入所選方向之車站與巴士
+    // 載入選擇方向的車站與路線
     async function loadSelectedBound() {
       const statusEl = document.getElementById('status');
       const selectEl = document.getElementById('boundSelect');
@@ -161,7 +158,7 @@
         const data = await res.json();
 
         if (!data.data || data.data.length === 0) {
-          statusEl.innerText = `無 ${currentRoute} 車站資料`;
+          statusEl.innerText = `無法載入 ${currentRoute} 車站`;
           return;
         }
 
@@ -200,7 +197,7 @@
       }
     }
 
-    // 嚴格單向車輛位置計算
+    // 嚴格單一方向巴士推算
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
