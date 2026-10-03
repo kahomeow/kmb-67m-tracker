@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴 67M 實時追蹤</title>
+  <title>九巴 67M 演算法實時模擬地圖</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
@@ -17,7 +17,7 @@
   </style>
 </head>
 <body>
-  <div class="status-box" id="status">搜尋 67M 巴士中...</div>
+  <div class="status-box" id="status">正在計算 67M 巴士實時內插位置...</div>
   <div id="map"></div>
 
   <script>
@@ -29,91 +29,129 @@
 
     let busMarkers = [];
     const stopCoords = {};
+    let routeStops = [];
 
-    // 紅底巴士 Icon
     const busIcon = L.divIcon({
-      html: '<div style="background:#e60012;color:white;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;font-size:16px;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);">🚌</div>',
+      html: '<div style="background:#e60012;color:white;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;font-size:16px;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);transition: all 1s linear;">🚌</div>',
       className: '',
       iconSize: [30, 30],
       iconAnchor: [15, 15]
     });
 
-    async function initAndFetch() {
+    async function init() {
       const statusEl = document.getElementById('status');
       try {
-        // 1. 取得所有車站座標
-        if (Object.keys(stopCoords).length === 0) {
-          const stopListRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop');
-          const stopListData = await stopListRes.json();
-          stopListData.data.forEach(s => {
-            stopCoords[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
-          });
+        // 1. 載入所有車站座標
+        const stopListRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop');
+        const stopListData = await stopListRes.json();
+        stopListData.data.forEach(s => {
+          stopCoords[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
+        });
 
-          // 2. 畫出 67M 所有車站
-          const routeRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
-          const routeData = await routeRes.json();
-          routeData.data.forEach(st => {
-            const coord = stopCoords[st.stop];
-            if (coord) {
-              L.circleMarker([coord.lat, coord.lng], {
-                radius: 4, color: '#0055aa', fillColor: '#ffffff', fillOpacity: 1
-              }).addTo(map).bindPopup(`車站：${coord.name}`);
-            }
-          });
-        }
+        // 2. 載入 67M 去程車站順序 (屯門 -> 葵芳)
+        const routeRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
+        const routeData = await routeRes.json();
+        routeStops = routeData.data;
 
-        // 3. 取得全線 ETA (去程與回程)
-        const [etaOutbound, etaInbound] = await Promise.all([
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-eta/67M/1').then(r => r.json()).catch(() => ({data:[]})),
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-eta/67M/2').then(r => r.json()).catch(() => ({data:[]}))
-        ]);
+        // 在地圖畫出路線車站點
+        routeStops.forEach(st => {
+          const coord = stopCoords[st.stop];
+          if (coord) {
+            L.circleMarker([coord.lat, coord.lng], {
+              radius: 4, color: '#0055aa', fillColor: '#ffffff', fillOpacity: 1
+            }).addTo(map).bindPopup(`車站：${coord.name}`);
+          }
+        });
 
-        const allEta = [...(etaOutbound.data || []), ...(etaInbound.data || [])];
+        calculateBusPositions();
+      } catch (err) {
+        console.error(err);
+        statusEl.innerText = '初始化數據失敗';
+      }
+    }
+
+    async function calculateBusPositions() {
+      const statusEl = document.getElementById('status');
+      try {
+        // 抓取全線 ETA
+        const etaRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-eta/67M/1');
+        const etaData = await etaRes.json();
+        if (!etaData.data) return;
+
+        const now = new Date();
         
-        // 清除舊圖標
-        busMarkers.forEach(m => map.removeLayer(m));
-        busMarkers = [];
-
-        const activeBuses = {};
-
-        // 篩選最接近車站的車輛 (eta_seq === 1 代表下一班即將到達該站的車)
-        allEta.forEach(item => {
-          if (item.eta && item.stop && item.eta_seq === 1) {
-            const coord = stopCoords[item.stop];
-            if (coord) {
-              // 以車站 + 目的地作為車輛識別 key
-              const key = `${item.stop}_${item.dest_tc}`;
-              activeBuses[key] = {
-                lat: coord.lat,
-                lng: coord.lng,
-                stopName: coord.name,
-                dest: item.dest_tc,
-                etaTime: new Date(item.eta).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-              };
+        // 建立車站序列對應的 ETA 字典
+        const stopEtaMap = {};
+        etaData.data.forEach(item => {
+          if (item.eta && item.seq) {
+            const etaTime = new Date(item.eta);
+            const diffMinutes = (etaTime - now) / 60000;
+            // 只記錄未過期且合理範圍內的 ETA
+            if (diffMinutes >= -1 && diffMinutes <= 60) {
+              if (!stopEtaMap[item.seq] || diffMinutes < stopEtaMap[item.seq].diffMinutes) {
+                stopEtaMap[item.seq] = {
+                  diffMinutes: diffMinutes,
+                  etaTime: etaTime,
+                  dest: item.dest_tc
+                };
+              }
             }
           }
         });
 
-        // 畫出巴士
-        let count = 0;
-        Object.keys(activeBuses).forEach(key => {
-          const bus = activeBuses[key];
-          const marker = L.marker([bus.lat, bus.lng], { icon: busIcon })
-            .addTo(map)
-            .bindPopup(`<b>九巴 67M</b><br>往：${bus.dest}<br>接近車站：${bus.stopName}<br>預計到站：${bus.etaTime}`);
-          busMarkers.push(marker);
-          count++;
-        });
+        // 清除舊圖標
+        busMarkers.forEach(m => map.removeLayer(m));
+        busMarkers = [];
 
-        statusEl.innerText = `已定圖 67M 巴士：${count} 部 (${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})})`;
+        let busCount = 0;
+
+        // 遍歷所有相鄰車站，進行距離與時間內插計算
+        for (let i = 0; i < routeStops.length - 1; i++) {
+          const seqA = routeStops[i].seq;
+          const seqB = routeStops[i + 1].seq;
+
+          const etaA = stopEtaMap[seqA];
+          const etaB = stopEtaMap[seqB];
+
+          // 如果前一站與後一站都有 ETA 數據，代表車輛正處於 A 站與 B 站之間
+          if (etaA && etaB && etaB.diffMinutes > etaA.diffMinutes) {
+            const coordA = stopCoords[routeStops[i].stop];
+            const coordB = stopCoords[routeStops[i + 1].stop];
+
+            if (coordA && coordB) {
+              // 車輛在 AB 區間內的行駛進度比例 (0.0 ~ 1.0)
+              // 假設：若 B 站還需 5 分鐘，A 站還需 1 分鐘，說明車已過 A 站，逼近 B 站
+              const totalInterval = etaB.diffMinutes - etaA.diffMinutes;
+              let ratio = 1 - (etaA.diffMinutes / (totalInterval || 1));
+              
+              // 限制 ratio 在 0 到 1 之間
+              ratio = Math.max(0, Math.min(1, ratio));
+
+              // 線性內插計算經緯度
+              const busLat = coordA.lat + (coordB.lat - coordA.lat) * ratio;
+              const busLng = coordA.lng + (coordB.lng - coordA.lng) * ratio;
+
+              const marker = L.marker([busLat, busLng], { icon: busIcon })
+                .addTo(map)
+                .bindPopup(`<b>九巴 67M (推算位置)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>預估進度：${(ratio * 100).toFixed(0)}%`);
+
+              busMarkers.push(marker);
+              busCount++;
+            }
+          }
+        }
+
+        statusEl.innerText = `演算法已推算 ${busCount} 部行駛中 67M 巴士 (${now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})})`;
+
       } catch (err) {
         console.error(err);
-        statusEl.innerText = '更新失敗，請重新載入網頁';
+        statusEl.innerText = '推算位置時發生錯誤';
       }
     }
 
-    initAndFetch();
-    setInterval(initAndFetch, 15000);
+    init();
+    // 每 10 秒重新計算推算一次
+    setInterval(calculateBusPositions, 10000);
   </script>
 </body>
 </html>
