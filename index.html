@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴 67M 演算法實時模擬地圖</title>
+  <title>九巴 67M 沿道路軌跡實時模擬</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- 引入 Turf.js 空間幾何計算庫 -->
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
     .status-box {
@@ -17,7 +19,7 @@
   </style>
 </head>
 <body>
-  <div class="status-box" id="status">正在計算 67M 巴士實時內插位置...</div>
+  <div class="status-box" id="status">正在載入 67M 道路軌跡...</div>
   <div id="map"></div>
 
   <script>
@@ -48,64 +50,61 @@
           stopCoords[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
         });
 
-        // 2. 載入 67M 去程車站順序 (屯門 -> 葵芳)
+        // 2. 載入 67M 車站順序
         const routeRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
         const routeData = await routeRes.json();
         routeStops = routeData.data;
 
-        // 在地圖畫出路線車站點
+        // 3. 繪製車站點與連線路網 (Polyline)
+        const pathCoords = [];
         routeStops.forEach(st => {
           const coord = stopCoords[st.stop];
           if (coord) {
+            pathCoords.push([coord.lat, coord.lng]);
             L.circleMarker([coord.lat, coord.lng], {
               radius: 4, color: '#0055aa', fillColor: '#ffffff', fillOpacity: 1
             }).addTo(map).bindPopup(`車站：${coord.name}`);
           }
         });
 
-        calculateBusPositions();
+        // 在地圖上畫出紅色道路幹線
+        if (pathCoords.length > 0) {
+          L.polyline(pathCoords, { color: '#ff3333', weight: 4, opacity: 0.6 }).addTo(map);
+        }
+
+        calculateBusPositionsPolyline();
       } catch (err) {
         console.error(err);
-        statusEl.innerText = '初始化數據失敗';
+        statusEl.innerText = '載入數據失敗';
       }
     }
 
-    async function calculateBusPositions() {
+    async function calculateBusPositionsPolyline() {
       const statusEl = document.getElementById('status');
       try {
-        // 抓取全線 ETA
         const etaRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-eta/67M/1');
         const etaData = await etaRes.json();
         if (!etaData.data) return;
 
         const now = new Date();
-        
-        // 建立車站序列對應的 ETA 字典
         const stopEtaMap = {};
+
         etaData.data.forEach(item => {
           if (item.eta && item.seq) {
             const etaTime = new Date(item.eta);
             const diffMinutes = (etaTime - now) / 60000;
-            // 只記錄未過期且合理範圍內的 ETA
             if (diffMinutes >= -1 && diffMinutes <= 60) {
               if (!stopEtaMap[item.seq] || diffMinutes < stopEtaMap[item.seq].diffMinutes) {
-                stopEtaMap[item.seq] = {
-                  diffMinutes: diffMinutes,
-                  etaTime: etaTime,
-                  dest: item.dest_tc
-                };
+                stopEtaMap[item.seq] = { diffMinutes: diffMinutes, dest: item.dest_tc };
               }
             }
           }
         });
 
-        // 清除舊圖標
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
-
         let busCount = 0;
 
-        // 遍歷所有相鄰車站，進行距離與時間內插計算
         for (let i = 0; i < routeStops.length - 1; i++) {
           const seqA = routeStops[i].seq;
           const seqB = routeStops[i + 1].seq;
@@ -113,27 +112,32 @@
           const etaA = stopEtaMap[seqA];
           const etaB = stopEtaMap[seqB];
 
-          // 如果前一站與後一站都有 ETA 數據，代表車輛正處於 A 站與 B 站之間
           if (etaA && etaB && etaB.diffMinutes > etaA.diffMinutes) {
             const coordA = stopCoords[routeStops[i].stop];
             const coordB = stopCoords[routeStops[i + 1].stop];
 
             if (coordA && coordB) {
-              // 車輛在 AB 區間內的行駛進度比例 (0.0 ~ 1.0)
-              // 假設：若 B 站還需 5 分鐘，A 站還需 1 分鐘，說明車已過 A 站，逼近 B 站
               const totalInterval = etaB.diffMinutes - etaA.diffMinutes;
               let ratio = 1 - (etaA.diffMinutes / (totalInterval || 1));
-              
-              // 限制 ratio 在 0 到 1 之間
               ratio = Math.max(0, Math.min(1, ratio));
 
-              // 線性內插計算經緯度
-              const busLat = coordA.lat + (coordB.lat - coordA.lat) * ratio;
-              const busLng = coordA.lng + (coordB.lng - coordA.lng) * ratio;
+              // ---【核心 Turf.js 道路線段沿線定位邏輯】---
+              // 1. 定義 A 站到 B 站的線段 (Turf LineString)
+              const segment = turf.lineString([
+                [coordA.lng, coordA.lat],
+                [coordB.lng, coordB.lat]
+              ]);
+              
+              // 2. 計算兩站之間線段長度 (公里)
+              const lineDistance = turf.length(segment, { units: 'kilometers' });
+              
+              // 3. 沿著線段長度按 ratio 比例找出經緯度
+              const targetPoint = turf.along(segment, lineDistance * ratio, { units: 'kilometers' });
+              const [busLng, busLat] = targetPoint.geometry.coordinates;
 
               const marker = L.marker([busLat, busLng], { icon: busIcon })
                 .addTo(map)
-                .bindPopup(`<b>九巴 67M (推算位置)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>預估進度：${(ratio * 100).toFixed(0)}%`);
+                .bindPopup(`<b>九巴 67M (沿路軌跡)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>沿路線進度：${(ratio * 100).toFixed(0)}%`);
 
               busMarkers.push(marker);
               busCount++;
@@ -141,7 +145,7 @@
           }
         }
 
-        statusEl.innerText = `演算法已推算 ${busCount} 部行駛中 67M 巴士 (${now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})})`;
+        statusEl.innerText = `Turf.js 沿路線鎖定 ${busCount} 部 67M 巴士 (${now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})})`;
 
       } catch (err) {
         console.error(err);
@@ -150,8 +154,7 @@
     }
 
     init();
-    // 每 10 秒重新計算推算一次
-    setInterval(calculateBusPositions, 10000);
+    setInterval(calculateBusPositionsPolyline, 10000);
   </script>
 </body>
 </html>
