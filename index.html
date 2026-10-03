@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴 67M 沿道路軌跡實時模擬</title>
+  <title>九巴 67M 實時模擬與車站 ETA</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- 引入 Turf.js 空間幾何計算庫 -->
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
@@ -16,10 +15,13 @@
       border-radius: 8px; font-family: sans-serif; font-size: 13px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-weight: bold;
     }
+    .eta-popup { font-family: sans-serif; font-size: 13px; line-height: 1.5; }
+    .eta-popup b { color: #e60012; }
+    .eta-item { margin-top: 4px; padding: 2px 0; border-bottom: 1px dashed #ccc; }
   </style>
 </head>
 <body>
-  <div class="status-box" id="status">正在載入 67M 道路軌跡...</div>
+  <div class="status-box" id="status">正在載入 67M 車站與道路軌跡...</div>
   <div id="map"></div>
 
   <script>
@@ -40,6 +42,37 @@
       iconAnchor: [15, 15]
     });
 
+    // 點擊車站時動態獲取該站下兩班車時間
+    async function fetchStopEta(stopId, stopName) {
+      try {
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopId}`);
+        const data = await res.json();
+        
+        // 篩選出 67M 的車次
+        const etaList = (data.data || []).filter(item => item.route === '67M' && item.eta);
+
+        if (etaList.length === 0) {
+          return `<div class="eta-popup"><b>${stopName}</b><br>暫無 67M 班次資料</div>`;
+        }
+
+        // 取前兩班車
+        const nextTwoBuses = etaList.slice(0, 2);
+        
+        let html = `<div class="eta-popup"><b>${stopName} (67M)</b><br><b>預計到站時間：</b><br>`;
+        nextTwoBuses.forEach((bus, index) => {
+          const etaTime = new Date(bus.eta);
+          const timeStr = etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const diffMin = Math.max(0, Math.round((etaTime - new Date()) / 60000));
+          html += `<div class="eta-item">班次 ${index + 1}（往 ${bus.dest_tc}）：<b>${timeStr}</b> (${diffMin} 分鐘後)</div>`;
+        });
+        html += `</div>`;
+        return html;
+
+      } catch (err) {
+        return `<div class="eta-popup"><b>${stopName}</b><br>載入到站時間失敗</div>`;
+      }
+    }
+
     async function init() {
       const statusEl = document.getElementById('status');
       try {
@@ -50,24 +83,34 @@
           stopCoords[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
         });
 
-        // 2. 載入 67M 車站順序
+        // 2. 載入 67M 去程車站順序
         const routeRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
         const routeData = await routeRes.json();
         routeStops = routeData.data;
 
-        // 3. 繪製車站點與連線路網 (Polyline)
+        // 3. 在地圖畫出車站點，並綁定點擊事件
         const pathCoords = [];
         routeStops.forEach(st => {
           const coord = stopCoords[st.stop];
           if (coord) {
             pathCoords.push([coord.lat, coord.lng]);
-            L.circleMarker([coord.lat, coord.lng], {
-              radius: 4, color: '#0055aa', fillColor: '#ffffff', fillOpacity: 1
-            }).addTo(map).bindPopup(`車站：${coord.name}`);
+            
+            const circle = L.circleMarker([coord.lat, coord.lng], {
+              radius: 5, color: '#0055aa', fillColor: '#ffffff', fillOpacity: 1, weight: 2
+            }).addTo(map);
+
+            // 初始化 Popup 載入中狀態
+            circle.bindPopup(`<b>${coord.name}</b><br>載入到站時間中...`);
+
+            // 點擊車站時即時抓取下兩班車 ETA
+            circle.on('click', async () => {
+              const popupContent = await fetchStopEta(st.stop, coord.name);
+              circle.getPopup().setContent(popupContent);
+            });
           }
         });
 
-        // 在地圖上畫出紅色道路幹線
+        // 畫出紅色路線軌跡
         if (pathCoords.length > 0) {
           L.polyline(pathCoords, { color: '#ff3333', weight: 4, opacity: 0.6 }).addTo(map);
         }
@@ -121,23 +164,18 @@
               let ratio = 1 - (etaA.diffMinutes / (totalInterval || 1));
               ratio = Math.max(0, Math.min(1, ratio));
 
-              // ---【核心 Turf.js 道路線段沿線定位邏輯】---
-              // 1. 定義 A 站到 B 站的線段 (Turf LineString)
               const segment = turf.lineString([
                 [coordA.lng, coordA.lat],
                 [coordB.lng, coordB.lat]
               ]);
               
-              // 2. 計算兩站之間線段長度 (公里)
               const lineDistance = turf.length(segment, { units: 'kilometers' });
-              
-              // 3. 沿著線段長度按 ratio 比例找出經緯度
               const targetPoint = turf.along(segment, lineDistance * ratio, { units: 'kilometers' });
               const [busLng, busLat] = targetPoint.geometry.coordinates;
 
               const marker = L.marker([busLat, busLng], { icon: busIcon })
                 .addTo(map)
-                .bindPopup(`<b>九巴 67M (沿路軌跡)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>沿路線進度：${(ratio * 100).toFixed(0)}%`);
+                .bindPopup(`<b>九巴 67M (推算車輛)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>進度：${(ratio * 100).toFixed(0)}%`);
 
               busMarkers.push(marker);
               busCount++;
@@ -145,7 +183,7 @@
           }
         }
 
-        statusEl.innerText = `Turf.js 沿路線鎖定 ${busCount} 部 67M 巴士 (${now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})})`;
+        statusEl.innerText = `已推算 ${busCount} 部 67M 巴士 (點擊車站可睇下兩班到站時間)`;
 
       } catch (err) {
         console.error(err);
