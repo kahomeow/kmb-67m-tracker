@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>往屯門/兆康 巴士到站時間表</title>
+  <title>黃竹坑 ↔ 銅鑼灣 ＆ 兆康/欣田 巴士到站時間表</title>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18,29 +18,6 @@
       min-height: 100vh;
     }
 
-    .nav-bar {
-      display: flex;
-      width: 100%;
-      max-width: 480px;
-      margin-bottom: 12px;
-      gap: 8px;
-    }
-    .nav-link {
-      flex: 1;
-      padding: 8px;
-      text-align: center;
-      background: #e2e8f0;
-      color: #4a5568;
-      text-decoration: none;
-      border-radius: 10px;
-      font-size: 13px;
-      font-weight: bold;
-    }
-    .nav-link.active {
-      background: #e60012;
-      color: white;
-    }
-
     .card {
       background: white;
       width: 100%;
@@ -52,13 +29,13 @@
       margin-bottom: 20px;
     }
     .header {
-      background: #9b2c2c;
+      background: #1a365d;
       color: white;
       padding: 20px;
       text-align: center;
     }
-    .header h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-    .header p { font-size: 13px; opacity: 0.85; }
+    .header h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .header p { font-size: 12px; opacity: 0.85; }
     
     .select-container {
       margin-top: 14px;
@@ -67,7 +44,7 @@
     }
     .stop-select {
       background: white;
-      color: #742a2a;
+      color: #1a365d;
       border: 1px solid #cbd5e0;
       padding: 8px 12px;
       border-radius: 20px;
@@ -75,8 +52,8 @@
       font-weight: bold;
       outline: none;
       cursor: pointer;
-      width: 85%;
-      max-width: 320px;
+      width: 90%;
+      max-width: 340px;
       text-align: center;
     }
 
@@ -94,7 +71,7 @@
     .stop-group-title {
       font-size: 14px;
       font-weight: bold;
-      color: #742a2a;
+      color: #1a365d;
       margin: 16px 0 10px 4px;
       display: flex;
       align-items: center;
@@ -106,7 +83,7 @@
       display: inline-block;
       width: 4px;
       height: 14px;
-      background: #e60012;
+      background: #3182ce;
       margin-right: 8px;
       border-radius: 2px;
     }
@@ -114,19 +91,19 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #fff5f5;
-      border: 1.5px solid #ff5252;
+      background: #fffdf0;
+      border: 1.5px solid #ffd100;
       border-radius: 12px;
       padding: 12px 16px;
       margin-bottom: 10px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
-    .route-item.ctb {
-      background: #fffdf0;
-      border-color: #ffd100;
+    .route-item.kmb {
+      background: #fff5f5;
+      border-color: #ff5252;
     }
     .route-badge { display: flex; flex-direction: column; align-items: flex-start; min-width: 65px; }
-    .route-number { font-size: 20px; font-weight: 800; color: #742a2a; }
+    .route-number { font-size: 20px; font-weight: 800; color: #1a365d; }
     .company-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-top: 2px; }
     .ctb-tag { background-color: #ffd100; color: #333; }
     .kmb-tag { background-color: #e60012; color: white; }
@@ -134,74 +111,27 @@
     .route-info { flex: 1; padding: 0 12px; }
     .dest-name { font-size: 14px; font-weight: bold; color: #2d3748; }
     .eta-times { text-align: right; min-width: 125px; }
-    .primary-eta { font-size: 15px; font-weight: bold; color: #c53030; }
+    .primary-eta { font-size: 15px; font-weight: bold; color: #2b6cb0; }
     .secondary-eta { font-size: 11px; color: #718096; margin-top: 3px; }
     .status-msg { text-align: center; padding: 24px; color: #718096; font-size: 14px; }
-
-    /* 底部偵測器通用樣式 */
-    .debug-section {
-      background: #ffffff;
-      border-radius: 16px;
-      border: 2px dashed #3182ce;
-      padding: 16px;
-      width: 100%;
-      max-width: 480px;
-      margin-top: 10px;
-    }
-    .debug-title {
-      font-size: 15px;
-      font-weight: bold;
-      color: #2b6cb0;
-      text-align: center;
-      margin-bottom: 12px;
-    }
-    .debug-sub-title {
-      font-size: 13px;
-      font-weight: bold;
-      background: #ebf8ff;
-      color: #2b6cb0;
-      padding: 4px 8px;
-      margin: 10px 0 6px 0;
-      border-radius: 4px;
-    }
-    .debug-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px;
-      border-bottom: 1px solid #eee;
-      font-size: 13px;
-    }
-    .debug-row.highlight {
-      background: #fff3e0;
-      border-left: 4px solid #ff9800;
-      font-weight: bold;
-    }
-    .stop-id-tag {
-      font-family: monospace;
-      color: #2b6cb0;
-      font-weight: bold;
-    }
   </style>
 </head>
 <body>
 
-  <!-- 頂部切換頁面導航條 -->
-  <div class="nav-bar">
-    <a href="index.html" class="nav-link">🚌 黃竹坑 ↔ 銅鑼灣</a>
-    <a href="tuenmun.html" class="nav-link active">⛰️ 往屯門/兆康專頁</a>
-  </div>
-
   <div class="card">
     <div class="header">
-      <h1>往屯門/兆康 巴士到站時間表</h1>
+      <h1>巴士即時到站時間表</h1>
       <p>📍 選擇巴士站觀測全路線到站時間</p>
 
       <div class="select-container">
         <select id="stopSelector" class="stop-select" onchange="loadAllEta()">
           <option value="ALL">📍 所有車站 (一次看全部)</option>
-          <option value="B17A07239E3E576E">堅拿道東 (往屯門過海線)</option>
-          <option value="001185">屯門公路轉車站 (往屯門方向)</option>
+          <option value="002439">銅鑼灣 - 希慎廣場, 軒尼詩道</option>
+          <option value="002404">堅拿道巴士專用線</option>
+          <option value="002383">業興街, 黃竹坑道</option>
+          <option value="XINTIAN_TM">欣田邨 / 兆康路 (往屯門方向)</option>
+          <option value="XINTIAN_KOWLOON">欣田邨 (往九龍/荃灣/上水方向)</option>
+          <option value="77FB32597CCD30F5">兆康苑總站</option>
         </select>
       </div>
 
@@ -213,18 +143,42 @@
     </div>
   </div>
 
-  <!-- 底部 67M, 67X (九巴) 及 50 (城巴) 站號偵測工具 -->
-  <div class="debug-section">
-    <div class="debug-title">🔍 九巴 67M/67X & 城巴 50 全線站號偵測器</div>
-    <div id="debugOutput">正在掃描路線站點...</div>
-  </div>
-
   <script>
+    // 整合港島區與精簡後的兆康/欣田車站配置
     const TARGET_STOPS = [
-      { id: 'B17A07239E3E576E', ctbId: '002404', name: '堅拿道東 (往屯門過海線)' },
-      { id: '001185', ctbId: '', name: '屯門公路轉車站 (往屯門方向)' }
+      { id: '002439', kmbId: '', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', key: '002439' },
+      { id: '002404', kmbId: 'B17A07239E3E576E', name: '堅拿道巴士專用線', key: '002404' },
+      { id: '002383', kmbId: 'AE4E8F82AD65348C', name: '業興街, 黃竹坑道', key: '002383' },
+      { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '欣田邨 / 兆康路 (往屯門方向)', key: 'XINTIAN_TM' },
+      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (往九龍/荃灣/上水方向)', key: 'XINTIAN_KOWLOON' },
+      { id: '', kmbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5' }
     ];
 
+    // 全路線監測清單
+    const ALL_ROUTES = [
+      '37A', '38', '41A', '42', '42C', '47P', '50', '67M', '67X', '70', '70P', '72', '72A', '73', '75', '76', '77', 
+      '90', '90B', '96', '97', '99', '99X', '107', '107P', '108', '112', '116', '170', '171', '171A', 
+      '592', '671', '671X', '973', 'A17', 'N72', 'N122'
+    ];
+
+    // 抓取城巴 ETA
+    async function fetchCtbEta(stopId, route) {
+      if (!stopId || stopId.length > 6) return [];
+      try {
+        const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.data || []).filter(i => i.eta).map(i => ({
+          ...i,
+          co: 'CTB',
+          dest_tc: i.dest_tc
+        }));
+      } catch (err) {
+        return [];
+      }
+    }
+
+    // 抓取九巴全站 ETA
     async function fetchKmbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
@@ -241,46 +195,31 @@
       }
     }
 
-    async function fetchCtbEta(stopId, route) {
-      if (!stopId) return [];
-      try {
-        const res = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`);
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => ({
-          ...i,
-          co: 'CTB',
-          dest_tc: i.dest_tc
-        }));
-      } catch (err) {
-        return [];
-      }
-    }
-
     async function fetchStopAllRoutes(stopObj) {
-      const kmbPromise = fetchKmbStopEta(stopObj.id);
-      const ctbPromises = ['962X', '969', 'N962', '50'].map(r => fetchCtbEta(stopObj.ctbId, r));
+      const ctbPromises = ALL_ROUTES.map(r => fetchCtbEta(stopObj.id, r));
+      const kmbPromise = fetchKmbStopEta(stopObj.kmbId);
 
-      const [kmbResults, ctbResults] = await Promise.all([
-        kmbPromise,
-        Promise.all(ctbPromises)
+      const [ctbResults, kmbResults] = await Promise.all([
+        Promise.all(ctbPromises),
+        kmbPromise
       ]);
 
-      let combined = [].concat(kmbResults);
+      let combined = [];
       ctbResults.forEach(list => { combined = combined.concat(list); });
+      combined = combined.concat(kmbResults);
 
       return combined;
     }
 
     async function loadAllEta() {
       const container = document.getElementById('etaContainer');
-      const selectedStopId = document.getElementById('stopSelector').value;
+      const selectedKey = document.getElementById('stopSelector').value;
       const now = new Date();
 
       try {
-        const filteredStops = selectedStopId === 'ALL' 
+        const filteredStops = selectedKey === 'ALL' 
           ? TARGET_STOPS 
-          : TARGET_STOPS.filter(s => s.id === selectedStopId);
+          : TARGET_STOPS.filter(s => s.key === selectedKey);
 
         const promises = filteredStops.map(stopObj => fetchStopAllRoutes(stopObj));
         const results = await Promise.all(promises);
@@ -319,10 +258,10 @@
                 secondEtaStr = `次班: ${timeStr2} (${diff2}分)`;
               }
 
-              const isCtb = bus1.co === 'CTB';
-              const companyClass = isCtb ? 'ctb' : 'kmb';
-              const tagText = isCtb ? '城巴' : '九巴';
-              const tagClass = isCtb ? 'ctb-tag' : 'kmb-tag';
+              const isKmb = bus1.co === 'KMB';
+              const companyClass = isKmb ? 'kmb' : 'ctb';
+              const tagText = isKmb ? '九巴' : '城巴';
+              const tagClass = isKmb ? 'kmb-tag' : 'ctb-tag';
 
               html += `
                 <div class="route-item ${companyClass}">
@@ -352,99 +291,7 @@
       }
     }
 
-    // 掃描九巴 (67M, 67X) 及 城巴 (50) 雙向車站
-    async function debugAllStops() {
-      const debugDiv = document.getElementById('debugOutput');
-      try {
-        let fullHtml = '';
-
-        // 1. 掃描城巴 50 號線 (Inbound & Outbound)
-        const [res50In, res50Out] = await Promise.all([
-          fetch('https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/50/inbound'),
-          fetch('https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/50/outbound')
-        ]);
-        const data50In = await res50In.json();
-        const data50Out = await res50Out.json();
-
-        async function processCtbList(list, label) {
-          if (!list || !list.data || list.data.length === 0) return `<div class="debug-sub-title">${label}：無數據</div>`;
-          
-          const promises = list.data.map(s => 
-            fetch(`https://rt.data.gov.hk/v2/transport/citybus/stop/${s.stop}`)
-              .then(r => r.json())
-              .then(d => ({ seq: s.seq, stop: s.stop, name: d.data ? d.data.name_tc : '未知車站' }))
-              .catch(() => ({ seq: s.seq, stop: s.stop, name: '載入失敗' }))
-          );
-
-          const results = await Promise.all(promises);
-          let subHtml = `<div class="debug-sub-title">${label} (${results.length} 個站)</div>`;
-
-          results.forEach(item => {
-            const isTarget = item.name.includes('欣田') || item.name.includes('兆康') || item.name.includes('和田') || item.name.includes('菁田') || item.name.includes('堅拿道');
-            subHtml += `
-              <div class="debug-row ${isTarget ? 'highlight' : ''}">
-                <div><b>[${item.seq}]</b> ${item.name}</div>
-                <div class="stop-id-tag">CTB: ${item.stop}</div>
-              </div>
-            `;
-          });
-          return subHtml;
-        }
-
-        fullHtml += await processCtbList(data50In, '城巴 50 往 尖沙咀東 (Inbound)');
-        fullHtml += await processCtbList(data50Out, '城巴 50 往 屯門和田邨 (Outbound)');
-
-        // 2. 掃描九巴 67M & 67X
-        const [res67mIn, res67mOut, res67xIn, res67xOut] = await Promise.all([
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/inbound/1'),
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1'),
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67X/inbound/1'),
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67X/outbound/1')
-        ]);
-
-        const data67mIn = await res67mIn.json();
-        const data67mOut = await res67mOut.json();
-        const data67xIn = await res67xIn.json();
-        const data67xOut = await res67xOut.json();
-
-        async function processKmbList(list, label) {
-          if (!list || !list.data || list.data.length === 0) return `<div class="debug-sub-title">${label}：無數據</div>`;
-          
-          const promises = list.data.map(s => 
-            fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop/${s.stop}`)
-              .then(r => r.json())
-              .then(d => ({ seq: s.seq, stop: s.stop, name: d.data ? d.data.name_tc : '未知車站' }))
-              .catch(() => ({ seq: s.seq, stop: s.stop, name: '載入失敗' }))
-          );
-
-          const results = await Promise.all(promises);
-          let subHtml = `<div class="debug-sub-title">${label} (${results.length} 個站)</div>`;
-
-          results.forEach(item => {
-            const isTarget = item.name.includes('兆康') || item.name.includes('欣田') || item.name.includes('紫田');
-            subHtml += `
-              <div class="debug-row ${isTarget ? 'highlight' : ''}">
-                <div><b>[${item.seq}]</b> ${item.name}</div>
-                <div class="stop-id-tag">KMB: ${item.stop}</div>
-              </div>
-            `;
-          });
-          return subHtml;
-        }
-
-        fullHtml += await processKmbList(data67mIn, '九巴 67M 往 葵芳');
-        fullHtml += await processKmbList(data67mOut, '九巴 67M 往 兆康苑');
-        fullHtml += await processKmbList(data67xIn, '九巴 67X 往 旺角東');
-        fullHtml += await processKmbList(data67xOut, '九巴 67X 往 兆康苑');
-
-        debugDiv.innerHTML = fullHtml;
-      } catch (err) {
-        debugDiv.innerHTML = '掃描失敗：' + err.message;
-      }
-    }
-
     loadAllEta();
-    debugAllStops();
     setInterval(loadAllEta, 15000);
   </script>
 </body>
