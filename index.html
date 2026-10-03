@@ -3,54 +3,100 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴 67M 實時車輛追蹤</title>
+  <title>九巴 67M 實時地圖</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+    .bus-icon {
+      background-color: #e60012;
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 24px;
+      font-weight: bold;
+      font-size: 12px;
+      border: 2px solid white;
+      box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <script>
-    const map = L.map('map').setView([22.375, 113.980], 13);
+    // 初始化地圖（聚焦屯門與葵芳之間）
+    const map = L.map('map').setView([22.375, 113.980], 12);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
     const busMarkers = {};
 
-    async function fetchBusLocations() {
+    // 建立紅色圓點作為巴士圖標
+    const createBusIcon = () => {
+      return L.divIcon({
+        className: 'bus-icon',
+        html: '🚌',
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+    };
+
+    async function loadRouteAndBuses() {
       try {
-        const stopRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
-        const stopData = await stopRes.json();
-        
-        for (const item of stopData.data.slice(0, 10)) {
-          const etaRes = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${item.stop}`);
-          const etaData = await etaRes.json();
-          const liveBuses = etaData.data.filter(eta => eta.route === '67M' && eta.lat && eta.long);
+        // 1. 取得 67M (去程: 屯門兆康 -> 葵芳站) 車站列表
+        const routeRes = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/route-stop/67M/outbound/1');
+        const routeData = await routeRes.json();
+        const stops = routeData.data;
 
-          liveBuses.forEach(bus => {
-            const busKey = bus.rmk || `${bus.lat}_${bus.long}`;
-            const lat = parseFloat(bus.lat);
-            const lng = parseFloat(bus.long);
+        // 2. 併發查詢所有車站的 ETA 以搜尋實時車輛
+        const etaPromises = stops.map(s => 
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${s.stop}`)
+            .then(res => res.json())
+            .catch(() => null)
+        );
 
-            if (busMarkers[busKey]) {
-              busMarkers[busKey].setLatLng([lat, lng]);
-            } else {
-              busMarkers[busKey] = L.marker([lat, lng])
-                .addTo(map)
-                .bindPopup(`<b>九巴 67M</b><br>往：${bus.dest_tc}`);
+        const etaResults = await Promise.all(etaPromises);
+
+        // 3. 解析出包含即時 GPS (lat, long) 的 67M 巴士
+        const activeBuses = {};
+
+        etaResults.forEach(etaData => {
+          if (!etaData || !etaData.data) return;
+          etaData.data.forEach(eta => {
+            if (eta.route === '67M' && eta.lat && eta.long && parseFloat(eta.lat) !== 0) {
+              const busKey = eta.rmk || `${eta.lat}_${eta.long}`;
+              activeBuses[busKey] = {
+                lat: parseFloat(eta.lat),
+                lng: parseFloat(eta.long),
+                dest: eta.dest_tc || '葵芳站/屯門',
+                etaTime: eta.eta ? new Date(eta.eta).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '即將到站'
+              };
             }
           });
-        }
+        });
+
+        // 4. 更新地圖上的巴士圖標
+        Object.keys(activeBuses).forEach(key => {
+          const bus = activeBuses[key];
+          if (busMarkers[key]) {
+            busMarkers[key].setLatLng([bus.lat, bus.lng]);
+          } else {
+            busMarkers[key] = L.marker([bus.lat, bus.lng], { icon: createBusIcon() })
+              .addTo(map)
+              .bindPopup(`<b>九巴 67M</b><br>往：${bus.dest}<br>預計到站：${bus.etaTime}`);
+          }
+        });
+
       } catch (err) {
-        console.error('更新失敗:', err);
+        console.error('載入數據失敗:', err);
       }
     }
 
-    fetchBusLocations();
-    setInterval(fetchBusLocations, 15000);
+    // 首次載入並每 15 秒自動刷新
+    loadRouteAndBuses();
+    setInterval(loadRouteAndBuses, 15000);
   </script>
 </body>
 </html>
