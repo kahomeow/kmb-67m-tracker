@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>黃竹坑 ↔ 銅鑼灣 ＆ 兆康/欣田 巴士到站時間表</title>
+  <title>屯門兆康路線 巴士到站時間表</title>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -29,7 +29,7 @@
       margin-bottom: 20px;
     }
     .header {
-      background: #1a365d;
+      background: #c62828;
       color: white;
       padding: 20px;
       text-align: center;
@@ -44,7 +44,7 @@
     }
     .stop-select {
       background: white;
-      color: #1a365d;
+      color: #c62828;
       border: 1px solid #cbd5e0;
       padding: 8px 12px;
       border-radius: 20px;
@@ -71,7 +71,7 @@
     .stop-group-title {
       font-size: 14px;
       font-weight: bold;
-      color: #1a365d;
+      color: #c62828;
       margin: 16px 0 10px 4px;
       display: flex;
       align-items: center;
@@ -83,7 +83,7 @@
       display: inline-block;
       width: 4px;
       height: 14px;
-      background: #3182ce;
+      background: #e60012;
       margin-right: 8px;
       border-radius: 2px;
     }
@@ -91,16 +91,16 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #fffdf0;
-      border: 1.5px solid #ffd100;
+      background: #fff5f5;
+      border: 1.5px solid #ff5252;
       border-radius: 12px;
       padding: 12px 16px;
       margin-bottom: 10px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
-    .route-item.kmb {
-      background: #fff5f5;
-      border-color: #ff5252;
+    .route-item.ctb {
+      background: #fffdf0;
+      border-color: #ffd100;
     }
     .route-badge { display: flex; flex-direction: column; align-items: flex-start; min-width: 65px; }
     .route-number { font-size: 20px; font-weight: 800; color: #1a365d; }
@@ -111,7 +111,7 @@
     .route-info { flex: 1; padding: 0 12px; }
     .dest-name { font-size: 14px; font-weight: bold; color: #2d3748; }
     .eta-times { text-align: right; min-width: 125px; }
-    .primary-eta { font-size: 15px; font-weight: bold; color: #2b6cb0; }
+    .primary-eta { font-size: 15px; font-weight: bold; color: #c62828; }
     .secondary-eta { font-size: 11px; color: #718096; margin-top: 3px; }
     .status-msg { text-align: center; padding: 24px; color: #718096; font-size: 14px; }
   </style>
@@ -120,15 +120,12 @@
 
   <div class="card">
     <div class="header">
-      <h1>巴士即時到站時間表</h1>
+      <h1>屯門兆康路線 巴士到站時間表</h1>
       <p>📍 選擇巴士站觀測全路線到站時間</p>
 
       <div class="select-container">
         <select id="stopSelector" class="stop-select" onchange="loadAllEta()">
           <option value="ALL">📍 所有車站 (一次看全部)</option>
-          <option value="002439">銅鑼灣 - 希慎廣場, 軒尼詩道</option>
-          <option value="002404">堅拿道巴士專用線</option>
-          <option value="002383">業興街, 黃竹坑道</option>
           <option value="XINTIAN_TM">欣田邨 / 兆康路 (往屯門方向)</option>
           <option value="XINTIAN_KOWLOON">欣田邨 (往九龍/荃灣/上水方向)</option>
           <option value="77FB32597CCD30F5">兆康苑總站</option>
@@ -144,21 +141,22 @@
   </div>
 
   <script>
-    // 整合港島區與精簡後的兆康/欣田車站配置
+    // 專注屯門/兆康區車站配置
     const TARGET_STOPS = [
-      { id: '002439', kmbId: '', name: '銅鑼灣 - 希慎廣場, 軒尼詩道', key: '002439' },
-      { id: '002404', kmbId: 'B17A07239E3E576E', name: '堅拿道巴士專用線', key: '002404' },
-      { id: '002383', kmbId: 'AE4E8F82AD65348C', name: '業興街, 黃竹坑道', key: '002383' },
       { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '欣田邨 / 兆康路 (往屯門方向)', key: 'XINTIAN_TM' },
-      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (往九龍/荃灣/上水方向)', key: 'XINTIAN_KOWLOON' },
+      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (往九龍/荃灣/上水/機場方向)', key: 'XINTIAN_KOWLOON' },
       { id: '', kmbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5' }
     ];
 
-    // 全路線監測清單
+    // 新增圖片中所有龍運/九巴/城巴路線
     const ALL_ROUTES = [
-      '37A', '38', '41A', '42', '42C', '47P', '50', '67M', '67X', '70', '70P', '72', '72A', '73', '75', '76', '77', 
-      '90', '90B', '96', '97', '99', '99X', '107', '107P', '108', '112', '116', '170', '171', '171A', 
-      '592', '671', '671X', '973', 'A17', 'N72', 'N122'
+      // 九巴 / 龍運 (截圖補充)
+      'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '960C', 'N260', 'P960', 'SP5A',
+      // 城巴 (截圖補充)
+      '50', '50R', '55', '56', '56A', '950', '955', 'B3A', 'N50', 'SP5B',
+      // 其他屯門常用備用路線
+      '52X', '57M', '58M', '58X', '59M', '59X', '60M', '60X', '61M', '61X', '62X', '63X', 
+      '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
 
     // 抓取城巴 ETA
@@ -178,7 +176,7 @@
       }
     }
 
-    // 抓取九巴全站 ETA
+    // 抓取九巴及龍運全站 ETA
     async function fetchKmbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
@@ -238,7 +236,8 @@
               routeMap[item.route].push(item);
             });
 
-            const routes = Object.keys(routeMap).sort((a, b) => parseInt(a) - parseInt(b));
+            // 路線名稱自然排序
+            const routes = Object.keys(routeMap).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
             routes.forEach(routeName => {
               const matched = routeMap[routeName];
@@ -260,7 +259,7 @@
 
               const isKmb = bus1.co === 'KMB';
               const companyClass = isKmb ? 'kmb' : 'ctb';
-              const tagText = isKmb ? '九巴' : '城巴';
+              const tagText = isKmb ? '九巴/龍運' : '城巴';
               const tagClass = isKmb ? 'kmb-tag' : 'ctb-tag';
 
               html += `
