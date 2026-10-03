@@ -41,7 +41,7 @@
     <div class="panel-title">🚌 九巴實時地圖</div>
     
     <label style="color: #444; font-weight: bold;">搜尋/輸入路線：</label>
-    <input type="text" id="routeInput" value="67M" placeholder="輸入數字 (例: 67M, 58X, 960)" oninput="onRouteInputChanged()">
+    <input type="text" id="routeInput" value="960" placeholder="輸入數字 (例: 960, 67M, 58X)" oninput="onRouteInputChanged()">
     
     <label style="color: #444; font-weight: bold; margin-top: 6px; display: block;">選擇目的地：</label>
     <select id="boundSelect" onchange="loadSelectedBound()">
@@ -65,7 +65,7 @@
     let busMarkers = [];
     let stopMarkers = [];
     let updateTimer = null;
-    let currentRoute = '67M';
+    let currentRoute = '960';
 
     const busIcon = L.divIcon({
       html: '<div style="background:#e60012;color:white;border-radius:50%;width:32px;height:32px;line-height:30px;text-align:center;font-size:16px;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.4);transition: all 1s linear;">🚌</div>',
@@ -74,7 +74,6 @@
       iconAnchor: [16, 16]
     });
 
-    // 初始化：下載全港車站數據
     async function initSystem() {
       const statusEl = document.getElementById('status');
       try {
@@ -85,7 +84,7 @@
         });
 
         statusEl.innerText = '車站數據就緒！';
-        onRouteInputChanged(); // 預設載入 67M
+        onRouteInputChanged();
 
       } catch (err) {
         console.error(err);
@@ -93,7 +92,6 @@
       }
     }
 
-    // 當輸入框改變時，直接向九巴 API 查詢該路線對應的所有方向 (Outbound / Inbound)
     async function onRouteInputChanged() {
       const statusEl = document.getElementById('status');
       const routeVal = document.getElementById('routeInput').value.trim().toUpperCase();
@@ -103,11 +101,9 @@
       statusEl.innerText = `搜尋 ${currentRoute} 中...`;
 
       try {
-        // 向 API 請求對應路線
         const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route`);
         const data = await res.json();
 
-        // 正確由前端篩選匹配路線 (如 960)
         const matchedRoutes = (data.data || []).filter(r => r.route === currentRoute);
 
         if (matchedRoutes.length === 0) {
@@ -118,7 +114,6 @@
         const boundSelectEl = document.getElementById('boundSelect');
         boundSelectEl.innerHTML = '';
 
-        // 只取主要班次 (service_type === '1')
         const mainBounds = matchedRoutes.filter(r => r.service_type === '1');
         const boundsToUse = mainBounds.length > 0 ? mainBounds : matchedRoutes;
 
@@ -138,7 +133,6 @@
       }
     }
 
-    // 載入選擇方向的車站與路線
     async function loadSelectedBound() {
       const statusEl = document.getElementById('status');
       const selectEl = document.getElementById('boundSelect');
@@ -197,7 +191,7 @@
       }
     }
 
-    // 嚴格單一方向巴士推算
+    // ---【長途特快路線（屯公/西隧）動態自適應演算法】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -213,7 +207,9 @@
           if (item.dir === targetDir && item.eta && item.seq) {
             const etaTime = new Date(item.eta);
             const diffMinutes = (etaTime - now) / 60000;
-            if (diffMinutes >= -0.5 && diffMinutes <= 45) {
+            
+            // 抓取未來 60 分鐘內的班次
+            if (diffMinutes >= -2 && diffMinutes <= 60) {
               if (!stopEtaMap[item.seq] || diffMinutes < stopEtaMap[item.seq].diffMinutes) {
                 stopEtaMap[item.seq] = { 
                   diffMinutes: diffMinutes, 
@@ -240,8 +236,13 @@
           if (etaA && etaB) {
             const segmentDiff = etaB.diffMinutes - etaA.diffMinutes;
 
-            if (segmentDiff > 0 && segmentDiff <= 6 && etaA.diffMinutes <= 2) {
-              const busId = etaA.rmk || `bus_single_dir_${seqA}_${Math.round(etaA.diffMinutes)}`;
+            // 長途優化條件：
+            // 1. segmentDiff > 0 (B 站時間晚於 A 站)
+            // 2. segmentDiff <= 25 分鐘 (放寬時間門檻以涵蓋屯門公路、西隧等超長特快路段)
+            // 3. 車輛已接近 A 站或正前往 B 站 (etaA.diffMinutes <= 3 且 etaB.diffMinutes > 0)
+            if (segmentDiff > 0 && segmentDiff <= 25 && etaA.diffMinutes <= 3 && etaB.diffMinutes > 0) {
+              
+              const busId = etaA.rmk || `bus_${seqA}_${seqB}_${Math.round(etaB.diffMinutes)}`;
 
               if (!uniqueBuses.has(busId)) {
                 uniqueBuses.add(busId);
@@ -250,8 +251,9 @@
                 const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
                 if (coordA && coordB) {
+                  // 計算進度比例 ratio
                   let ratio = 1 - (etaA.diffMinutes / segmentDiff);
-                  ratio = Math.max(0, Math.min(1, ratio));
+                  ratio = Math.max(0.03, Math.min(0.97, ratio));
 
                   const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
                   const lineDistance = turf.length(segment, { units: 'kilometers' });
@@ -260,7 +262,7 @@
 
                   const marker = L.marker([busLat, busLng], { icon: busIcon })
                     .addTo(map)
-                    .bindPopup(`<b>九巴 ${route} (單向車輛)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>進度：${(ratio * 100).toFixed(0)}%`);
+                    .bindPopup(`<b>九巴 ${route} (長途特快)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>區間距離：${lineDistance.toFixed(1)} km<br>區間進度：${(ratio * 100).toFixed(0)}%`);
 
                   busMarkers.push(marker);
                 }
