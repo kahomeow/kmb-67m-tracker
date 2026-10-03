@@ -83,7 +83,6 @@
     let updateTimer = null;
     let currentRoute = '960';
 
-    // 動態顯示當前查詢的路線號碼 (例如: 🚌 960)
     function createBusIcon(routeName) {
       return L.divIcon({
         html: `<div class="bus-marker-tag">🚌 ${routeName}</div>`,
@@ -210,7 +209,7 @@
       }
     }
 
-    // ---【專注第一班車精確位置推算 + 顯示路線號碼】---
+    // ---【全線多車追蹤 + 全局時間戳防重覆演算法】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -227,12 +226,12 @@
             const etaTime = new Date(item.eta);
             const diffMinutes = (etaTime - now) / 60000;
             
-            if (diffMinutes >= -2 && diffMinutes <= 90) {
+            if (diffMinutes >= -1 && diffMinutes <= 120) {
               if (!stopEtaMap[item.seq] || diffMinutes < stopEtaMap[item.seq].diffMinutes) {
                 stopEtaMap[item.seq] = {
                   diffMinutes: diffMinutes,
                   dest: item.dest_tc,
-                  rmk: item.rmk || '',
+                  rawEtaTime: item.eta, // 車輛時間戳 ID
                   etaTimeStr: etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
               }
@@ -243,48 +242,41 @@
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
 
-        const drawnBusSet = new Set();
+        // 記錄全線上已被繪製過的時間戳
+        const drawnBusTimestamps = new Set();
 
+        // 掃描整條路線所有站點區間
         for (let i = 0; i < currentRouteStops.length - 1; i++) {
           const seqA = currentRouteStops[i].seq;
           const seqB = currentRouteStops[i + 1].seq;
-          const seqC = (i + 2 < currentRouteStops.length) ? currentRouteStops[i + 2].seq : null;
 
           const etaA = stopEtaMap[seqA];
           const etaB = stopEtaMap[seqB];
-          const etaC = seqC ? stopEtaMap[seqC] : null;
 
           if (etaA && etaB) {
             const diffAB = etaB.diffMinutes - etaA.diffMinutes;
 
-            if (diffAB > 0 && etaA.diffMinutes <= 2.5 && etaB.diffMinutes > 0) {
-              const uniqueKey = `bus_${etaB.etaTimeStr}`;
+            // 當車輛處於 A 與 B 車站之間 (etaA <= 1 分鐘，且正往 B 站駛去)
+            if (diffAB > 0 && etaA.diffMinutes <= 1.0 && etaB.diffMinutes > 0) {
+              
+              const busUniqueKey = etaB.rawEtaTime;
 
-              if (!drawnBusSet.has(uniqueKey)) {
-                drawnBusSet.add(uniqueKey);
+              // 確保每部實體車輛只被畫一次
+              if (!drawnBusTimestamps.has(busUniqueKey)) {
+                drawnBusTimestamps.add(busUniqueKey);
 
                 const coordA = allStopsMap[currentRouteStops[i].stop];
                 const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
                 if (coordA && coordB) {
                   let ratio = 1 - (etaA.diffMinutes / diffAB);
-
-                  if (etaC) {
-                    const diffBC = etaC.diffMinutes - etaB.diffMinutes;
-                    if (diffBC > 0) {
-                      const smoothFactor = diffAB / (diffAB + diffBC);
-                      ratio = ratio * 0.85 + smoothFactor * 0.15;
-                    }
-                  }
-
-                  ratio = Math.max(0.05, Math.min(0.95, ratio));
+                  ratio = Math.max(0.08, Math.min(0.92, ratio));
 
                   const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
                   const lineDistance = turf.length(segment, { units: 'kilometers' });
                   const targetPoint = turf.along(segment, lineDistance * ratio, { units: 'kilometers' });
                   const [busLng, busLat] = targetPoint.geometry.coordinates;
 
-                  // 使用當前查詢的路線名稱 (例如 960 / N260) 建立標籤
                   const marker = L.marker([busLat, busLng], { icon: createBusIcon(route) })
                     .addTo(map)
                     .bindPopup(`<b>九巴 ${route}</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>下一站到站時間：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
@@ -298,7 +290,7 @@
 
         const selectEl = document.getElementById('boundSelect');
         const destName = selectEl.options[selectEl.selectedIndex] ? selectEl.options[selectEl.selectedIndex].text : '';
-        statusEl.innerText = `${route} (${destName})：追蹤巴士位置中`;
+        statusEl.innerText = `${route} (${destName})：全線追蹤到 ${drawnBusTimestamps.size} 部車`;
 
       } catch (err) {
         console.error(err);
