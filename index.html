@@ -3,20 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴全路線實時動態模擬地圖</title>
+  <title>九巴全路線動態地圖</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
     .control-panel {
-      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      position: absolute; top: 10px; right: 10px; z-index: 1000;
       background: rgba(255, 255, 255, 0.95); padding: 10px 14px;
       border-radius: 8px; font-family: sans-serif; font-size: 13px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-width: 300px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-width: 280px; width: 80%;
     }
     .control-panel input, .control-panel select, .control-panel button {
-      padding: 5px 8px; font-size: 13px; margin: 3px 0; width: 100%;
+      padding: 6px 8px; font-size: 13px; margin: 4px 0; width: 100%;
       box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;
     }
     .control-panel button {
@@ -35,13 +35,12 @@
     <label><b>輸入九巴路線：</b></label>
     <input type="text" id="routeInput" value="67M" placeholder="例: 67M, 58X, 960">
     
-    <label><b>選擇方向：</b></label>
-    <select id="boundSelect">
-      <option value="outbound">去程 (Outbound)</option>
-      <option value="inbound">回程 (Inbound)</option>
+    <label><b>選擇目的地：</b></label>
+    <select id="boundSelect" onchange="loadSelectedBound()">
+      <option value="outbound">載入目的地中...</option>
     </select>
     
-    <button onclick="changeRoute()">搜尋並載入地圖</button>
+    <button onclick="searchRoute()">搜尋路線</button>
     <div class="status-text" id="status">初始化全港車站數據中...</div>
   </div>
 
@@ -54,12 +53,12 @@
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    let allStopsMap = {};   // 儲存全港所有車站座標
-    let currentRouteStops = []; // 當前路線車站列表
-    let busMarkers = [];     // 巴士 Marker 陣列
-    let stopMarkers = [];    // 車站 Marker 陣列
-    let routePolyline = null; // 路線畫線
+    let allStopsMap = {};
+    let currentRouteStops = [];
+    let busMarkers = [];
+    let stopMarkers = [];
     let updateTimer = null;
+    let currentRoute = '67M';
 
     const busIcon = L.divIcon({
       html: '<div style="background:#e60012;color:white;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;font-size:16px;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);transition: all 1s linear;">🚌</div>',
@@ -68,54 +67,84 @@
       iconAnchor: [15, 15]
     });
 
-    // 初始化：載入全港所有車站基礎座標
     async function initSystem() {
       const statusEl = document.getElementById('status');
       try {
         const res = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop');
         const data = await res.json();
         data.data.forEach(s => {
-          allStopsMap[s.stop] = {
-            lat: parseFloat(s.lat),
-            lng: parseFloat(s.long),
-            name: s.name_tc
-          };
+          allStopsMap[s.stop] = { lat: parseFloat(s.lat), lng: parseFloat(s.long), name: s.name_tc };
         });
-        statusEl.innerText = '系統準備就緒，請搜尋路線。';
-        changeRoute(); // 預設載入 67M
+        statusEl.innerText = '系統就緒，正在搜尋 67M...';
+        searchRoute();
       } catch (err) {
         statusEl.innerText = '載入全港車站資料失敗';
       }
     }
 
-    // 當使用者更換路線或方向時觸發
-    async function changeRoute() {
+    async function searchRoute() {
       const statusEl = document.getElementById('status');
       const route = document.getElementById('routeInput').value.trim().toUpperCase();
-      const bound = document.getElementById('boundSelect').value;
-
       if (!route) return;
 
-      statusEl.innerText = `正在載入 ${route} 路線圖...`;
-
-      if (updateTimer) clearInterval(updateTimer);
-
-      // 清除舊圖層
-      clearMapLayers();
+      currentRoute = route;
+      statusEl.innerText = `搜尋 ${route} 路線方向中...`;
 
       try {
-        // 1. 取得該路線及方向的車站順序
-        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${bound}/1`);
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route/${route}`);
         const data = await res.json();
 
         if (!data.data || data.data.length === 0) {
-          statusEl.innerText = `搵唔到路線 ${route} 的資料！`;
+          statusEl.innerText = `搵唔到路線 ${route}！`;
+          return;
+        }
+
+        const selectEl = document.getElementById('boundSelect');
+        selectEl.innerHTML = '';
+
+        const mainBounds = data.data.filter(r => r.service_type === '1');
+        const boundsToUse = mainBounds.length > 0 ? mainBounds : data.data;
+
+        boundsToUse.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.bound === 'O' ? 'outbound' : 'inbound';
+          opt.dataset.serviceType = item.service_type;
+          opt.innerText = `往：${item.dest_tc}`;
+          selectEl.appendChild(opt);
+        });
+
+        loadSelectedBound();
+
+      } catch (err) {
+        statusEl.innerText = `查詢 ${route} 方向失敗`;
+      }
+    }
+
+    async function loadSelectedBound() {
+      const statusEl = document.getElementById('status');
+      const selectEl = document.getElementById('boundSelect');
+      const bound = selectEl.value;
+      const selectedOpt = selectEl.options[selectEl.selectedIndex];
+      const serviceType = selectedOpt ? selectedOpt.dataset.serviceType || '1' : '1';
+
+      if (!bound) return;
+
+      statusEl.innerText = `正在載入 ${currentRoute} 地圖...`;
+
+      if (updateTimer) clearInterval(updateTimer);
+      clearMapLayers();
+
+      try {
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRoute}/${bound}/${serviceType}`);
+        const data = await res.json();
+
+        if (!data.data || data.data.length === 0) {
+          statusEl.innerText = `無法載入 ${currentRoute} 車站資料`;
           return;
         }
 
         currentRouteStops = data.data;
 
-        // 2. 在地圖畫出新車站與繪製 Polyline
         const pathCoords = [];
         currentRouteStops.forEach(st => {
           const coord = allStopsMap[st.stop];
@@ -128,7 +157,7 @@
 
             circle.bindPopup(`<b>${coord.name}</b><br>載入到站時間中...`);
             circle.on('click', async () => {
-              const popupContent = await fetchStopEta(st.stop, route, coord.name);
+              const popupContent = await fetchStopEta(st.stop, currentRoute, coord.name);
               circle.getPopup().setContent(popupContent);
             });
 
@@ -136,25 +165,23 @@
           }
         });
 
+        // 僅計算座標區域以自動縮放地圖，不畫線條
         if (pathCoords.length > 0) {
-          routePolyline = L.polyline(pathCoords, { color: '#ff3333', weight: 4, opacity: 0.6 }).addTo(map);
-          map.fitBounds(routePolyline.getBounds(), { padding: [30, 30] }); // 地圖自動 Focus 到該路線
+          const tempPolyline = L.polyline(pathCoords);
+          map.fitBounds(tempPolyline.getBounds(), { padding: [30, 30] });
         }
 
-        // 3. 立即推算巴士位置並啟動定時刷新
-        await calculateBusPositions(route, bound);
-        updateTimer = setInterval(() => calculateBusPositions(route, bound), 10000);
+        await calculateBusPositions(currentRoute, bound, serviceType);
+        updateTimer = setInterval(() => calculateBusPositions(currentRoute, bound, serviceType), 10000);
 
       } catch (err) {
-        statusEl.innerText = `載入 ${route} 失敗`;
+        statusEl.innerText = `載入地圖失敗`;
       }
     }
 
-    // 推算實時巴士位置
-    async function calculateBusPositions(route, bound) {
+    async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
-        const serviceType = 1;
         const etaRes = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route}/${serviceType}`);
         const etaData = await etaRes.json();
         if (!etaData.data) return;
@@ -164,7 +191,6 @@
         const targetDir = (bound === 'outbound') ? 'O' : 'I';
 
         etaData.data.forEach(item => {
-          // 篩選對應方向與有效 ETA
           if (item.dir === targetDir && item.eta && item.seq) {
             const etaTime = new Date(item.eta);
             const diffMinutes = (etaTime - now) / 60000;
@@ -176,12 +202,10 @@
           }
         });
 
-        // 清除舊巴士 Marker
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
         let busCount = 0;
 
-        // Turf.js 沿線內插計算
         for (let i = 0; i < currentRouteStops.length - 1; i++) {
           const seqA = currentRouteStops[i].seq;
           const seqB = currentRouteStops[i + 1].seq;
@@ -213,14 +237,15 @@
           }
         }
 
-        statusEl.innerText = `${route} (${bound === 'outbound' ? '去程' : '回程'})：找到 ${busCount} 部巴士`;
+        const selectEl = document.getElementById('boundSelect');
+        const destName = selectEl.options[selectEl.selectedIndex] ? selectEl.options[selectEl.selectedIndex].text : '';
+        statusEl.innerText = `${route} (${destName})：找到 ${busCount} 部巴士`;
 
       } catch (err) {
         statusEl.innerText = '推算位置發生錯誤';
       }
     }
 
-    // 點擊車站查詢下兩班車 ETA
     async function fetchStopEta(stopId, route, stopName) {
       try {
         const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopId}`);
@@ -247,17 +272,13 @@
       }
     }
 
-    // 清除舊線路在地圖上的標記
     function clearMapLayers() {
       busMarkers.forEach(m => map.removeLayer(m));
       stopMarkers.forEach(m => map.removeLayer(m));
-      if (routePolyline) map.removeLayer(routePolyline);
       busMarkers = [];
       stopMarkers = [];
-      routePolyline = null;
     }
 
-    // 啟動
     initSystem();
   </script>
 </body>
