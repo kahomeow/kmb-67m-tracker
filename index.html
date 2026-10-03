@@ -3,24 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴全路線實時動態追蹤器 (KMB Tracker)</title>
+  <title>九巴實時地圖 (KMB Tracker)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+    
     .control-panel {
       position: absolute; top: 10px; right: 10px; z-index: 1000;
-      background: rgba(255, 255, 255, 0.95); padding: 10px 14px;
-      border-radius: 8px; font-family: sans-serif; font-size: 13px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3); max-width: 280px; width: 80%;
+      background: rgba(255, 255, 255, 0.96); padding: 12px 16px;
+      border-radius: 10px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      max-width: 280px; width: 80%; border: 2px solid #e60012;
+    }
+    .panel-title {
+      font-size: 16px; font-weight: bold; color: #e60012; margin-bottom: 8px;
+      text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 6px;
     }
     .control-panel input, .control-panel select {
-      padding: 6px 8px; font-size: 13px; margin: 4px 0; width: 100%;
-      box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;
-      background-color: white;
+      padding: 7px 10px; font-size: 13px; margin: 4px 0; width: 100%;
+      box-sizing: border-box; border: 1.5px solid #ccc; border-radius: 6px;
+      background-color: #fff;
     }
-    .status-text { margin-top: 6px; font-weight: bold; color: #333; font-size: 12px; }
+    .control-panel input:focus, .control-panel select:focus {
+      border-color: #e60012; outline: none;
+    }
+    .status-text { margin-top: 8px; font-weight: bold; color: #0055aa; font-size: 12px; text-align: center; }
     .eta-popup { font-family: sans-serif; font-size: 13px; line-height: 1.5; }
     .eta-popup b { color: #e60012; }
     .eta-item { margin-top: 4px; padding: 2px 0; border-bottom: 1px dashed #ccc; }
@@ -29,17 +38,22 @@
 <body>
 
   <div class="control-panel">
-    <label><b>輸入/選擇九巴路線：</b></label>
-    <!-- 使用 input + datalist 實現輸入數字即時過濾 -->
-    <input type="text" id="routeInput" list="routeDatalist" value="67M" placeholder="輸入數字 (例: 67, 58, 960)" oninput="onRouteInputChanged()">
-    <datalist id="routeDatalist"></datalist>
+    <div class="panel-title">🚌 九巴實時地圖</div>
     
-    <label><b>選擇目的地：</b></label>
+    <label style="color: #444; font-weight: bold;">搜尋/過濾路線：</label>
+    <input type="text" id="filterInput" placeholder="輸入數字 (例: 67, 58, 960)" oninput="filterRouteList()">
+    
+    <label style="color: #444; font-weight: bold; margin-top: 4px; display: block;">選擇路線：</label>
+    <select id="routeSelect" onchange="onRouteSelectChanged()">
+      <option value="">載入路線集中...</option>
+    </select>
+    
+    <label style="color: #444; font-weight: bold; margin-top: 4px; display: block;">選擇目的地：</label>
     <select id="boundSelect" onchange="loadSelectedBound()">
       <option value="">請先選擇路線...</option>
     </select>
     
-    <div class="status-text" id="status">初始化系統數據中...</div>
+    <div class="status-text" id="status">正在載入九巴數據...</div>
   </div>
 
   <div id="map"></div>
@@ -53,6 +67,7 @@
 
     let allStopsMap = {};
     let allRoutesData = [];
+    let allRouteNames = [];
     let currentRouteStops = [];
     let busMarkers = [];
     let stopMarkers = [];
@@ -60,10 +75,10 @@
     let currentRoute = '67M';
 
     const busIcon = L.divIcon({
-      html: '<div style="background:#e60012;color:white;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;font-size:16px;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);transition: all 1s linear;">🚌</div>',
+      html: '<div style="background:#e60012;color:white;border-radius:50%;width:32px;height:32px;line-height:30px;text-align:center;font-size:16px;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.4);transition: all 1s linear;">🚌</div>',
       className: '',
-      iconSize: [30, 30],
-      iconAnchor: [15, 15]
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
     });
 
     async function initSystem() {
@@ -79,46 +94,65 @@
         const routeData = await routeRes.json();
         allRoutesData = routeData.data || [];
 
-        // 整理不重複路線名稱
-        const routeNames = [...new Set(allRoutesData.map(r => r.route))].sort((a, b) => 
+        allRouteNames = [...new Set(allRoutesData.map(r => r.route))].sort((a, b) => 
           a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
         );
 
-        // 填入 datalist
-        const datalistEl = document.getElementById('routeDatalist');
-        datalistEl.innerHTML = '';
-        routeNames.forEach(r => {
-          const opt = document.createElement('option');
-          opt.value = r;
-          datalistEl.appendChild(opt);
-        });
+        renderRouteOptions(allRouteNames);
 
-        statusEl.innerText = '系統數據載入完成！';
-        onRouteInputChanged();
+        const routeSelectEl = document.getElementById('routeSelect');
+        routeSelectEl.value = '67M';
+
+        statusEl.innerText = '九巴數據載入完成！';
+        onRouteSelectChanged();
 
       } catch (err) {
         console.error(err);
-        statusEl.innerText = '載入系統資料失敗';
+        statusEl.innerText = '載入九巴資料失敗';
       }
     }
 
-    // 當輸入框內容改變時觸發
-    function onRouteInputChanged() {
-      const statusEl = document.getElementById('status');
-      const inputVal = document.getElementById('routeInput').value.trim().toUpperCase();
+    function renderRouteOptions(routesToRender) {
+      const routeSelectEl = document.getElementById('routeSelect');
+      routeSelectEl.innerHTML = '';
 
-      if (!inputVal) return;
-
-      // 檢查輸入的路線是否存在於資料庫中
-      const routeMatches = allRoutesData.filter(r => r.route === inputVal);
-      if (routeMatches.length === 0) {
-        statusEl.innerText = `搜尋 ${inputVal} 中...`;
+      if (routesToRender.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.innerText = '找不到相關路線';
+        routeSelectEl.appendChild(opt);
         return;
       }
 
-      currentRoute = inputVal;
+      routesToRender.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r;
+        opt.innerText = r;
+        routeSelectEl.appendChild(opt);
+      });
+    }
+
+    function filterRouteList() {
+      const filterVal = document.getElementById('filterInput').value.trim().toUpperCase();
+      const filtered = allRouteNames.filter(r => r.includes(filterVal));
+      renderRouteOptions(filtered);
+
+      if (filtered.length > 0) {
+        document.getElementById('routeSelect').value = filtered[0];
+        onRouteSelectChanged();
+      }
+    }
+
+    function onRouteSelectChanged() {
+      const statusEl = document.getElementById('status');
+      const routeSelectEl = document.getElementById('routeSelect');
+      const selectedRoute = routeSelectEl.value;
+
+      if (!selectedRoute) return;
+      currentRoute = selectedRoute;
       statusEl.innerText = `載入 ${currentRoute} 方向中...`;
 
+      const routeMatches = allRoutesData.filter(r => r.route === currentRoute);
       const mainBounds = routeMatches.filter(r => r.service_type === '1');
       const boundsToUse = mainBounds.length > 0 ? mainBounds : routeMatches;
 
@@ -145,7 +179,7 @@
 
       if (!bound) return;
 
-      statusEl.innerText = `正在載入 ${currentRoute} 車站資料...`;
+      statusEl.innerText = `正在載入 ${currentRoute} 車站...`;
 
       if (updateTimer) clearInterval(updateTimer);
       clearMapLayers();
