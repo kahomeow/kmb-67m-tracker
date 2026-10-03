@@ -228,6 +228,7 @@
       }
     }
 
+    // ---【純單一方向嚴格計算與過濾】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -236,14 +237,18 @@
         if (!etaData.data) return;
 
         const now = new Date();
+        // 嚴格比對方向：Outbound -> 'O'，Inbound -> 'I'
         const targetDir = (bound === 'outbound') ? 'O' : 'I';
 
         const stopEtaMap = {};
         etaData.data.forEach(item => {
+          // 關鍵1：徹底過濾方向，非當前選擇方向的 ETA 數據直接丟棄
           if (item.dir === targetDir && item.eta && item.seq) {
             const etaTime = new Date(item.eta);
             const diffMinutes = (etaTime - now) / 60000;
-            if (diffMinutes >= -1 && diffMinutes <= 60) {
+            
+            // 抓取有效時間內的班次
+            if (diffMinutes >= -0.5 && diffMinutes <= 45) {
               if (!stopEtaMap[item.seq] || diffMinutes < stopEtaMap[item.seq].diffMinutes) {
                 stopEtaMap[item.seq] = { 
                   diffMinutes: diffMinutes, 
@@ -267,30 +272,34 @@
           const etaA = stopEtaMap[seqA];
           const etaB = stopEtaMap[seqB];
 
-          if (etaA && etaB && etaB.diffMinutes > etaA.diffMinutes) {
-            const busId = etaA.rmk || `bus_sec_${seqA}_${Math.round(etaA.diffMinutes)}`;
+          if (etaA && etaB) {
+            const segmentDiff = etaB.diffMinutes - etaA.diffMinutes;
 
-            if (!uniqueBuses.has(busId)) {
-              uniqueBuses.add(busId);
+            // 關鍵2：時間差與距離合理性驗證 (只計算正在兩站間進行中的單向車輛)
+            if (segmentDiff > 0 && segmentDiff <= 6 && etaA.diffMinutes <= 2) {
+              const busId = etaA.rmk || `bus_single_dir_${seqA}_${Math.round(etaA.diffMinutes)}`;
 
-              const coordA = allStopsMap[currentRouteStops[i].stop];
-              const coordB = allStopsMap[currentRouteStops[i + 1].stop];
+              if (!uniqueBuses.has(busId)) {
+                uniqueBuses.add(busId);
 
-              if (coordA && coordB) {
-                const totalInterval = etaB.diffMinutes - etaA.diffMinutes;
-                let ratio = 1 - (etaA.diffMinutes / (totalInterval || 1));
-                ratio = Math.max(0, Math.min(1, ratio));
+                const coordA = allStopsMap[currentRouteStops[i].stop];
+                const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
-                const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
-                const lineDistance = turf.length(segment, { units: 'kilometers' });
-                const targetPoint = turf.along(segment, lineDistance * ratio, { units: 'kilometers' });
-                const [busLng, busLat] = targetPoint.geometry.coordinates;
+                if (coordA && coordB) {
+                  let ratio = 1 - (etaA.diffMinutes / segmentDiff);
+                  ratio = Math.max(0, Math.min(1, ratio));
 
-                const marker = L.marker([busLat, busLng], { icon: busIcon })
-                  .addTo(map)
-                  .bindPopup(`<b>九巴 ${route} (推算車輛)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>進度：${(ratio * 100).toFixed(0)}%`);
+                  const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
+                  const lineDistance = turf.length(segment, { units: 'kilometers' });
+                  const targetPoint = turf.along(segment, lineDistance * ratio, { units: 'kilometers' });
+                  const [busLng, busLat] = targetPoint.geometry.coordinates;
 
-                busMarkers.push(marker);
+                  const marker = L.marker([busLat, busLng], { icon: busIcon })
+                    .addTo(map)
+                    .bindPopup(`<b>九巴 ${route} (單向車輛)</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>進度：${(ratio * 100).toFixed(0)}%`);
+
+                  busMarkers.push(marker);
+                }
               }
             }
           }
@@ -298,7 +307,7 @@
 
         const selectEl = document.getElementById('boundSelect');
         const destName = selectEl.options[selectEl.selectedIndex] ? selectEl.options[selectEl.selectedIndex].text : '';
-        statusEl.innerText = `${route} (${destName})：找到 ${uniqueBuses.size} 部巴士`;
+        statusEl.innerText = `${route} (${destName})：約 ${uniqueBuses.size} 部車行駛中`;
 
       } catch (err) {
         statusEl.innerText = '推算位置發生錯誤';
