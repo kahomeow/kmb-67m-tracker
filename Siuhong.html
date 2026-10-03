@@ -102,11 +102,16 @@
       background: #fffdf0;
       border-color: #ffd100;
     }
+    .route-item.lwb {
+      background: #fffaf0;
+      border-color: #f97316;
+    }
     .route-badge { display: flex; flex-direction: column; align-items: flex-start; min-width: 65px; }
     .route-number { font-size: 20px; font-weight: 800; color: #1a365d; }
     .company-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-top: 2px; }
     .ctb-tag { background-color: #ffd100; color: #333; }
     .kmb-tag { background-color: #e60012; color: white; }
+    .lwb-tag { background-color: #f97316; color: white; }
     
     .route-info { flex: 1; padding: 0 12px; }
     .dest-name { font-size: 14px; font-weight: bold; color: #2d3748; }
@@ -126,8 +131,8 @@
       <div class="select-container">
         <select id="stopSelector" class="stop-select" onchange="loadAllEta()">
           <option value="ALL">📍 所有車站 (一次看全部)</option>
-          <option value="XINTIAN_TM">欣田邨 / 兆康路 (往屯門方向)</option>
-          <option value="XINTIAN_KOWLOON">欣田邨 (往九龍/荃灣/上水方向)</option>
+          <option value="SIU_HONG_SOUTH">兆康路 (近中學，南行)</option>
+          <option value="YAN_TIN_NORTH">欣田邨 (近欣田邨，北行)</option>
           <option value="77FB32597CCD30F5">兆康苑總站</option>
         </select>
       </div>
@@ -141,25 +146,21 @@
   </div>
 
   <script>
-    // 專注屯門/兆康區車站配置
     const TARGET_STOPS = [
-      { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '欣田邨 / 兆康路 (近中學，南行)', key: 'XINTIAN_TM' },
-      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (近欣田邨，北行)', key: 'XINTIAN_KOWLOON' },
+      { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH' },
+      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH' },
       { id: '', kmbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5' }
     ];
 
-    // 新增圖片中所有龍運/九巴/城巴路線
+    const LWB_ROUTES = ['A34', 'E33P', 'E36C', 'NA33'];
+
     const ALL_ROUTES = [
-      // 九巴 / 龍運 (截圖補充)
       'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '960C', 'N260', 'P960', 'SP5A',
-      // 城巴 (截圖補充)
       '50', '50R', '55', '56', '56A', '950', '955', 'B3A', 'N50', 'SP5B',
-      // 其他屯門常用備用路線
       '52X', '57M', '58M', '58X', '59M', '59X', '60M', '60X', '61M', '61X', '62X', '63X', 
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
 
-    // 抓取城巴 ETA
     async function fetchCtbEta(stopId, route) {
       if (!stopId || stopId.length > 6) return [];
       try {
@@ -176,18 +177,20 @@
       }
     }
 
-    // 抓取九巴及龍運全站 ETA
     async function fetchKmbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
         const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${kmbStopId}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => ({
-          ...i,
-          co: 'KMB',
-          dest_tc: i.dest_tc || '目的地'
-        }));
+        return (data.data || []).filter(i => i.eta).map(i => {
+          const isLwb = LWB_ROUTES.includes(i.route);
+          return {
+            ...i,
+            co: isLwb ? 'LWB' : 'KMB',
+            dest_tc: i.dest_tc || '目的地'
+          };
+        });
       } catch (err) {
         return [];
       }
@@ -236,7 +239,6 @@
               routeMap[item.route].push(item);
             });
 
-            // 路線名稱自然排序
             const routes = Object.keys(routeMap).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
             routes.forEach(routeName => {
@@ -257,10 +259,19 @@
                 secondEtaStr = `次班: ${timeStr2} (${diff2}分)`;
               }
 
-              const isKmb = bus1.co === 'KMB';
-              const companyClass = isKmb ? 'kmb' : 'ctb';
-              const tagText = isKmb ? '九巴/龍運' : '城巴';
-              const tagClass = isKmb ? 'kmb-tag' : 'ctb-tag';
+              let companyClass = 'kmb';
+              let tagText = '九巴';
+              let tagClass = 'kmb-tag';
+
+              if (bus1.co === 'LWB') {
+                companyClass = 'lwb';
+                tagText = '龍運';
+                tagClass = 'lwb-tag';
+              } else if (bus1.co === 'CTB') {
+                companyClass = 'ctb';
+                tagText = '城巴';
+                tagClass = 'ctb-tag';
+              }
 
               html += `
                 <div class="route-item ${companyClass}">
