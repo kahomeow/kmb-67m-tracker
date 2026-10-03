@@ -33,6 +33,22 @@
     .eta-popup { font-family: sans-serif; font-size: 13px; line-height: 1.5; }
     .eta-popup b { color: #e60012; }
     .eta-item { margin-top: 4px; padding: 2px 0; border-bottom: 1px dashed #ccc; }
+
+    /* 車站與巴士圖標專用樣式 */
+    .bus-marker-tag {
+      background: #e60012;
+      color: white;
+      border-radius: 12px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: bold;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -41,7 +57,7 @@
     <div class="panel-title">🚌 九巴實時地圖</div>
     
     <label style="color: #444; font-weight: bold;">搜尋/輸入路線：</label>
-    <input type="text" id="routeInput" value="960" placeholder="輸入數字 (例: 960, 67M, 58X)" oninput="onRouteInputChanged()">
+    <input type="text" id="routeInput" value="960" placeholder="輸入數字 (例: 960, 67M, N260)" oninput="onRouteInputChanged()">
     
     <label style="color: #444; font-weight: bold; margin-top: 6px; display: block;">選擇目的地：</label>
     <select id="boundSelect" onchange="loadSelectedBound()">
@@ -67,13 +83,13 @@
     let updateTimer = null;
     let currentRoute = '960';
 
-    // 建立包含頭班、次班、三班標誌的動態 Icon 產生器
-    function createBusIcon(labelNumber) {
+    // 顯式調整標籤為 🚌 Bus 1, 🚌 Bus 2, 🚌 Bus 3
+    function createBusIcon(batchNumber) {
       return L.divIcon({
-        html: `<div style="background:#e60012;color:white;border-radius:20px;padding:2px 8px;font-size:12px;font-weight:bold;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.4);white-space:nowrap;display:flex;align-items:center;gap:3px;">🚌 班次 ${labelNumber}</div>`,
+        html: `<div class="bus-marker-tag">🚌 Bus ${batchNumber}</div>`,
         className: '',
-        iconSize: [60, 26],
-        iconAnchor: [30, 13]
+        iconSize: [75, 26],
+        iconAnchor: [37, 13]
       });
     }
 
@@ -194,7 +210,7 @@
       }
     }
 
-    // ---【跨三站 + 多班車 (前三班) 動態插值計算】---
+    // ---【跨三站權重演算法 + 唯一車輛繪製】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -205,8 +221,6 @@
         const now = new Date();
         const targetDir = (bound === 'outbound') ? 'O' : 'I';
 
-        // 建立各車站的前三班車 ETA 結構
-        // stopEtaMap[seq] = [bus1_diff, bus2_diff, bus3_diff]
         const stopEtaMap = {};
         etaData.data.forEach(item => {
           if (item.dir === targetDir && item.eta && item.seq) {
@@ -218,13 +232,13 @@
               stopEtaMap[item.seq].push({
                 diffMinutes: diffMinutes,
                 dest: item.dest_tc,
-                rmk: item.rmk || ''
+                rmk: item.rmk || '',
+                etaTimeStr: etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               });
             }
           }
         });
 
-        // 依時間排序每個車站的班次
         Object.keys(stopEtaMap).forEach(seq => {
           stopEtaMap[seq].sort((a, b) => a.diffMinutes - b.diffMinutes);
         });
@@ -232,43 +246,45 @@
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
 
-        const trackedBuses = new Set();
-        let detectedBusCount = 0;
+        const drawnBatchSet = new Set();
 
-        // 遍歷所有連續的三個車站：Station A -> Station B -> Station C
-        for (let i = 0; i < currentRouteStops.length - 2; i++) {
+        for (let i = 0; i < currentRouteStops.length - 1; i++) {
           const seqA = currentRouteStops[i].seq;
           const seqB = currentRouteStops[i + 1].seq;
-          const seqC = currentRouteStops[i + 2].seq;
+          const seqC = (i + 2 < currentRouteStops.length) ? currentRouteStops[i + 2].seq : null;
 
           const listA = stopEtaMap[seqA] || [];
           const listB = stopEtaMap[seqB] || [];
-          const listC = stopEtaMap[seqC] || [];
+          const listC = seqC ? (stopEtaMap[seqC] || []) : [];
 
-          // 針對前 3 班車（batchIndex: 0=頭班, 1=次班, 2=三班）分別算位置
           for (let batchIdx = 0; batchIdx < 3; batchIdx++) {
             const etaA = listA[batchIdx];
             const etaB = listB[batchIdx];
             const etaC = listC[batchIdx];
 
-            if (etaA && etaB && etaC) {
+            if (etaA && etaB) {
               const diffAB = etaB.diffMinutes - etaA.diffMinutes;
-              const diffBC = etaC.diffMinutes - etaB.diffMinutes;
 
-              // 車輛處於 A 到 B 之間
-              if (diffAB > 0 && etaA.diffMinutes <= 2 && etaB.diffMinutes > 0) {
-                const busId = etaA.rmk || `bus_${batchIdx}_${seqA}_${seqB}`;
+              if (diffAB > 0 && etaA.diffMinutes <= 2.5 && etaB.diffMinutes > 0) {
+                const uniqueKey = `batch_${batchIdx}_${etaB.etaTimeStr}`;
 
-                if (!trackedBuses.has(busId)) {
-                  trackedBuses.add(busId);
-                  detectedBusCount++;
+                if (!drawnBatchSet.has(uniqueKey)) {
+                  drawnBatchSet.add(uniqueKey);
 
                   const coordA = allStopsMap[currentRouteStops[i].stop];
                   const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
                   if (coordA && coordB) {
-                    // 使用跨三站時間調整行車比例
                     let ratio = 1 - (etaA.diffMinutes / diffAB);
+
+                    if (etaC) {
+                      const diffBC = etaC.diffMinutes - etaB.diffMinutes;
+                      if (diffBC > 0) {
+                        const smoothFactor = diffAB / (diffAB + diffBC);
+                        ratio = ratio * 0.85 + smoothFactor * 0.15;
+                      }
+                    }
+
                     ratio = Math.max(0.05, Math.min(0.95, ratio));
 
                     const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
@@ -278,7 +294,7 @@
 
                     const marker = L.marker([busLat, busLng], { icon: createBusIcon(batchIdx + 1) })
                       .addTo(map)
-                      .bindPopup(`<b>九巴 ${route} (班次 ${batchIdx + 1})</b><br>往：${etaA.dest}<br>位置區間：${coordA.name} ➔ ${coordB.name}<br>下一站：${coordB.name} (約 ${Math.ceil(etaB.diffMinutes)} 分鐘)`);
+                      .bindPopup(`<b>九巴 ${route} (Bus ${batchIdx + 1})</b><br>往：${etaA.dest}<br>介於：${coordA.name} ➔ ${coordB.name}<br>下一站到站時間：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
 
                     busMarkers.push(marker);
                   }
@@ -290,7 +306,7 @@
 
         const selectEl = document.getElementById('boundSelect');
         const destName = selectEl.options[selectEl.selectedIndex] ? selectEl.options[selectEl.selectedIndex].text : '';
-        statusEl.innerText = `${route} (${destName})：追蹤到約 ${detectedBusCount} 部車`;
+        statusEl.innerText = `${route} (${destName})：追蹤到 ${drawnBatchSet.size} 部班次`;
 
       } catch (err) {
         console.error(err);
@@ -314,7 +330,7 @@
           const etaTime = new Date(bus.eta);
           const timeStr = etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const diffMin = Math.max(0, Math.round((etaTime - new Date()) / 60000));
-          html += `<div class="eta-item">班次 ${index + 1}（往 ${bus.dest_tc}）：<b>${timeStr}</b> (${diffMin} 分鐘後)</div>`;
+          html += `<div class="eta-item">Bus ${index + 1}（往 ${bus.dest_tc}）：<b>${timeStr}</b> (${diffMin} 分鐘後)</div>`;
         });
         html += `</div>`;
         return html;
