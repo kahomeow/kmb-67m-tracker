@@ -101,10 +101,30 @@
   </div>
 
   <script>
+    // 城巴單一車站名稱發起點
+    async function fetchCtbStopName(stopId) {
+      const urls = [
+        `https://rt.data.gov.hk/v2/transport/citybus/stop/${stopId}`,
+        `https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/ctb/${stopId}`
+      ];
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.data && data.data.name_tc) {
+              return data.data.name_tc;
+            }
+          }
+        } catch (e) {}
+      }
+      return `車站 (${stopId})`;
+    }
+
     async function inspectRouteStops() {
       const company = document.getElementById('companySelect').value;
       const route = document.getElementById('routeInput').value.trim().toUpperCase();
-      const bound = document.getElementById('boundSelect').value; // outbound / inbound
+      const bound = document.getElementById('boundSelect').value;
       const statusEl = document.getElementById('statusMsg');
       const tableEl = document.getElementById('resultTable');
       const bodyEl = document.getElementById('tableBody');
@@ -123,7 +143,7 @@
         let stopNameMap = {};
 
         if (company === 'CTB') {
-          // 城巴 API 端點全兼容測試 (v1 與 v2 雙防線)
+          // 城巴路線車站清單
           const urlsToTry = [
             `https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/${route}/${bound}`,
             `https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/ctb/${route}/${bound}`,
@@ -140,33 +160,21 @@
                   break;
                 }
               }
-            } catch (e) {
-              console.log('Try CTB API next url...');
-            }
+            } catch (e) {}
           }
 
           if (stops.length > 0) {
-            // 抓取城巴車站全清單配對名稱
-            const ctbStopUrls = [
-              `https://rt.data.gov.hk/v2/transport/citybus/stop/CTB`,
-              `https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/ctb`
-            ];
-            for (const sUrl of ctbStopUrls) {
-              try {
-                const res = await fetch(sUrl);
-                if (res.ok) {
-                  const sData = await res.json();
-                  (sData.data || []).forEach(s => {
-                    stopNameMap[s.stop] = s.name_tc || s.name_en;
-                  });
-                  break;
-                }
-              } catch (e) {}
-            }
+            statusEl.innerText = `找到 ${stops.length} 個車站，正在解析城巴車站中文名稱...`;
+            // 個別併行解析城巴每站的中文站名
+            const namePromises = stops.map(st => fetchCtbStopName(st.stop));
+            const names = await Promise.all(namePromises);
+            stops.forEach((st, i) => {
+              stopNameMap[st.stop] = names[i];
+            });
           }
 
         } else {
-          // 九巴 / 龍運 API (統一向 kmb 端點查詢)
+          // 九巴 / 龍運 API
           const coPath = company.toLowerCase();
           const routeStopRes = await fetch(`https://data.etabus.gov.hk/v1/transport/${coPath}/route-stop/${route}/${bound}/1`);
           const routeStopData = routeStopRes.ok ? await routeStopRes.json() : { data: [] };
@@ -182,7 +190,7 @@
         }
 
         if (stops.length === 0) {
-          statusEl.innerText = `搵唔到 ${company} ${route} (${bound}) 的車站資料，請確認路線是否開行或更換去/回程測試！`;
+          statusEl.innerText = `搵唔到 ${company} ${route} (${bound}) 的車站資料！`;
           return;
         }
 
