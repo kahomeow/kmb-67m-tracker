@@ -3,251 +3,193 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>九巴 / 龍運 車站 ID 查詢工具 (Bus Stop ID Inspector)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>三巴車站 ID 查詢工具 (Bus Stop ID Inspector)</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f4f6f9;
+      color: #333;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
     }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    h1 { font-size: 20px; text-align: center; margin-bottom: 16px; color: #1a365d; }
+    .search-box {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    select, input, button {
+      padding: 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      outline: none;
+    }
+    select { flex: 1; min-width: 110px; }
+    input { flex: 2; min-width: 120px; }
+    button {
+      background: #0055aa;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+      padding: 10px 16px;
+    }
+    button:hover { background: #003377; }
+    .status { font-size: 13px; color: #666; text-align: center; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; font-size: 13px; }
+    th { background: #f8fafc; font-weight: bold; }
+    tr.highlight { background-color: #fff9db; font-weight: bold; }
+    .copy-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      background: #e2e8f0;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+    .copy-btn:hover { background: #cbd5e1; }
   </style>
 </head>
-<body class="bg-slate-100 min-h-screen p-4 sm:p-6 text-slate-800">
+<body>
 
-  <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-    <!-- Header -->
-    <div class="bg-rose-700 text-white p-6 text-center">
-      <h1 class="text-xl font-bold tracking-wide">🚌 巴士車站 ID 查詢工具</h1>
-      <p class="text-xs text-rose-100 mt-1">專門用作查詢 KMB / LWB 路線全線車站 ID (Stop ID)</p>
+  <div class="container">
+    <h1>🔍 三巴車站 ID 查詢工具</h1>
+    
+    <div class="search-box">
+      <select id="companySelect">
+        <option value="KMB">九巴 (KMB)</option>
+        <option value="LWB">龍運 (LWB)</option>
+        <option value="CTB">城巴 (CTB)</option>
+      </select>
+      
+      <input type="text" id="routeInput" placeholder="輸入路線 (例: A34, 50, 67M)" value="A34">
+      
+      <select id="boundSelect">
+        <option value="outbound">去程 (Outbound)</option>
+        <option value="inbound">回程 (Inbound)</option>
+      </select>
+      
+      <button onclick="inspectRouteStops()">查詢車站</button>
     </div>
 
-    <!-- Controls -->
-    <div class="p-6 border-b border-slate-200 bg-slate-50 space-y-4">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">專營公司 (Company)</label>
-          <select id="companySelect" class="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm font-semibold focus:outline-none focus:border-rose-600">
-            <option value="lwb">龍運 (LWB)</option>
-            <option value="kmb">九巴 (KMB)</option>
-          </select>
-        </div>
+    <div class="status" id="statusMsg">請點擊查詢發起搜尋...</div>
 
-        <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">輸入路線 (Route)</label>
-          <input type="text" id="routeInput" value="A34" placeholder="例: A34, E33P, 67M" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm font-semibold uppercase focus:outline-none focus:border-rose-600">
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">方向 (Bound)</label>
-          <select id="boundSelect" class="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm font-semibold focus:outline-none focus:border-rose-600">
-            <option value="outbound">去程 (Outbound / O)</option>
-            <option value="inbound">回程 (Inbound / I)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="flex gap-2 pt-2">
-        <button onclick="queryStops()" class="flex-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold py-2.5 px-4 rounded-lg text-sm transition shadow">
-          🔍 查詢車站列表
-        </button>
-      </div>
-
-      <div class="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 pt-1">
-        <span>快捷選擇：</span>
-        <button onclick="quickSearch('lwb', 'A34')" class="text-rose-600 hover:underline">LWB A34</button>
-        <button onclick="quickSearch('lwb', 'E33P')" class="text-rose-600 hover:underline">LWB E33P</button>
-        <button onclick="quickSearch('lwb', 'E36C')" class="text-rose-600 hover:underline">LWB E36C</button>
-        <button onclick="quickSearch('lwb', 'NA33')" class="text-rose-600 hover:underline">LWB NA33</button>
-        <button onclick="quickSearch('kmb', '67M')" class="text-rose-600 hover:underline">KMB 67M</button>
-      </div>
-    </div>
-
-    <!-- Status & Results Container -->
-    <div class="p-6 space-y-4">
-      <div id="statusMessage" class="text-center py-4 text-sm font-semibold text-slate-500">
-        請輸入路線並按下「查詢車站列表」
-      </div>
-
-      <div id="resultsTable" class="hidden space-y-3">
-        <div class="flex justify-between items-center text-xs text-slate-500 font-semibold px-1">
-          <span id="resultCount">找到 0 個車站</span>
-          <span>點擊 ID 可直接複製</span>
-        </div>
-
-        <div class="overflow-x-auto rounded-xl border border-slate-200">
-          <table class="w-full text-left border-collapse text-xs sm:text-sm">
-            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-              <tr>
-                <th class="p-3 w-12 text-center">序</th>
-                <th class="p-3">車站名稱 (TC / EN)</th>
-                <th class="p-3 w-44">車站 ID (Stop ID)</th>
-              </tr>
-            </thead>
-            <tbody id="stopListBody" class="divide-y divide-slate-100">
-              <!-- Dynamically Populated -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast Notification -->
-  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-full shadow-lg opacity-0 transition-opacity duration-200 pointer-events-none">
-    已複製到剪貼簿！
+    <table id="resultTable" style="display:none;">
+      <thead>
+        <tr>
+          <th style="width: 45px;">序號</th>
+          <th>車站名稱</th>
+          <th>車站 ID (Stop ID)</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
   </div>
 
   <script>
-    let globalStopNameMap = {};
-
-    // 頁面加載時先預載全港車站基礎座標與中文名稱 Map
-    async function initStopMap() {
-      const statusEl = document.getElementById('statusMessage');
-      statusEl.innerText = '正在預載 KMB & LWB 全港車站基本數據...';
-
-      try {
-        const [kmbRes, lwbRes] = await Promise.all([
-          fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop'),
-          fetch('https://data.etabus.gov.hk/v1/transport/lwb/stop')
-        ]);
-
-        const kmbData = await kmbRes.json();
-        const lwbData = await lwbRes.json();
-
-        (kmbData.data || []).concat(lwbData.data || []).forEach(s => {
-          globalStopNameMap[s.stop] = {
-            name_tc: s.name_tc || '未知車站',
-            name_en: s.name_en || ''
-          };
-        });
-
-        statusEl.innerText = '車站數據初始化就緒！請輸入路線進行查詢。';
-      } catch (err) {
-        console.error(err);
-        statusEl.innerText = '預載車站失敗，但仍可進行路線查詢。';
-      }
-    }
-
-    function quickSearch(co, route) {
-      document.getElementById('companySelect').value = co;
-      document.getElementById('routeInput').value = route;
-      queryStops();
-    }
-
-    async function queryStops() {
+    async function inspectRouteStops() {
       const company = document.getElementById('companySelect').value;
       const route = document.getElementById('routeInput').value.trim().toUpperCase();
       const bound = document.getElementById('boundSelect').value;
-
-      const statusEl = document.getElementById('statusMessage');
-      const resultsTable = document.getElementById('resultsTable');
-      const stopListBody = document.getElementById('stopListBody');
-      const resultCount = document.getElementById('resultCount');
+      const statusEl = document.getElementById('statusMsg');
+      const tableEl = document.getElementById('resultTable');
+      const bodyEl = document.getElementById('tableBody');
 
       if (!route) {
-        alert('請輸入路線編號！');
+        alert('請輸入路線編號');
         return;
       }
 
-      statusEl.innerText = `正在向 ${company.toUpperCase()} 查詢 ${route} (${bound}) 的車站清單...`;
-      statusEl.classList.remove('hidden');
-      resultsTable.classList.add('hidden');
+      statusEl.innerText = `正在查詢 ${company} ${route} 車站資料...`;
+      tableEl.style.display = 'none';
+      bodyEl.innerHTML = '';
 
       try {
-        // 1. 查詢路線車站序列 API
-        const routeStopUrl = `https://data.etabus.gov.hk/v1/transport/${company}/route-stop/${route}/${bound}/1`;
-        const res = await fetch(routeStopUrl);
-        
-        if (!res.ok) {
-          throw new Error(`HTTP Error ${res.status}`);
+        let stops = [];
+        let stopNameMap = {};
+
+        if (company === 'CTB') {
+          // 1. 查詢城巴 (CTB) API
+          const routeStopRes = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/${route}/${bound}`);
+          const routeStopData = await routeStopRes.ok ? await routeStopRes.json() : { data: [] };
+          stops = routeStopData.data || [];
+
+          if (stops.length > 0) {
+            const allCtbStopsRes = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/stop/CTB`);
+            const allCtbStopsData = await allCtbStopsRes.json();
+            (allCtbStopsData.data || []).forEach(s => {
+              stopNameMap[s.stop] = s.name_tc;
+            });
+          }
+
+        } else {
+          // 2. 查詢九巴 (KMB) 或 龍運 (LWB) API
+          const coPath = company.toLowerCase();
+          const routeStopRes = await fetch(`https://data.etabus.gov.hk/v1/transport/${coPath}/route-stop/${route}/${bound}/1`);
+          const routeStopData = await routeStopRes.ok ? await routeStopRes.json() : { data: [] };
+          stops = routeStopData.data || [];
+
+          if (stops.length > 0) {
+            const allStopsRes = await fetch(`https://data.etabus.gov.hk/v1/transport/${coPath}/stop`);
+            const allStopsData = await allStopsRes.json();
+            (allStopsData.data || []).forEach(s => {
+              stopNameMap[s.stop] = s.name_tc;
+            });
+          }
         }
 
-        const data = await res.json();
-        const routeStops = data.data || [];
-
-        if (routeStops.length === 0) {
-          statusEl.innerText = `搵唔到 ${company.toUpperCase()} 路線 ${route} 的車站資料 (請檢查方向或路線編號)。`;
+        if (stops.length === 0) {
+          statusEl.innerText = `搵唔到 ${company} ${route} (${bound}) 的車站資料！`;
           return;
         }
 
-        stopListBody.innerHTML = '';
-        resultCount.innerText = `找到 ${routeStops.length} 個車站 (${company.toUpperCase()} ${route})`;
+        statusEl.innerText = `成功載入 ${company} ${route} 共有 ${stops.length} 個車站：`;
+        tableEl.style.display = 'table';
 
-        // 2. 逐一處理車站名稱與 Stop ID
-        for (let i = 0; i < routeStops.length; i++) {
-          const item = routeStops[i];
-          const stopId = item.stop;
-          
-          let stopInfo = globalStopNameMap[stopId];
+        stops.forEach((st, idx) => {
+          const seq = st.seq || (idx + 1);
+          const stopId = st.stop;
+          const stopName = stopNameMap[stopId] || '未知車站';
 
-          // 若全域地圖無紀錄，向單一車站 API 補抓
-          if (!stopInfo) {
-            try {
-              const singleStopRes = await fetch(`https://data.etabus.gov.hk/v1/transport/${company}/stop/${stopId}`);
-              const singleStopData = await singleStopRes.json();
-              if (singleStopData.data) {
-                stopInfo = {
-                  name_tc: singleStopData.data.name_tc,
-                  name_en: singleStopData.data.name_en
-                };
-                globalStopNameMap[stopId] = stopInfo;
-              }
-            } catch (e) {
-              console.warn(`補抓車站 ${stopId} 失敗`);
-            }
-          }
-
-          const nameTc = stopInfo ? stopInfo.name_tc : '載入名稱中...';
-          const nameEn = stopInfo ? stopInfo.name_en : '';
-
-          // 突顯兆康相關車站
-          const isSiuHong = nameTc.includes('兆康') || nameTc.includes('欣田');
-
+          const isTarget = stopName.includes('兆康') || stopName.includes('欣田');
           const tr = document.createElement('tr');
-          tr.className = isSiuHong ? 'bg-amber-50 hover:bg-amber-100 transition font-bold' : 'hover:bg-slate-50 transition';
+          if (isTarget) tr.className = 'highlight';
 
           tr.innerHTML = `
-            <td class="p-3 text-center text-slate-500 font-mono">${item.seq || (i + 1)}</td>
-            <td class="p-3">
-              <div class="${isSiuHong ? 'text-amber-900 font-bold' : 'text-slate-800 font-medium'}">${nameTc} ${isSiuHong ? '⭐' : ''}</div>
-              <div class="text-xs text-slate-400 font-normal">${nameEn}</div>
-            </td>
-            <td class="p-3">
-              <button onclick="copyToClipboard('${stopId}')" class="font-mono text-xs bg-slate-100 border border-slate-300 hover:bg-rose-50 hover:border-rose-300 text-slate-700 px-2.5 py-1.5 rounded-lg active:scale-95 transition flex items-center gap-1.5 w-full justify-between">
-                <span>${stopId}</span>
-                <span class="text-[10px] text-slate-400">📋 複製</span>
-              </button>
+            <td>${seq}</td>
+            <td>${stopName} ${isTarget ? '⭐' : ''}</td>
+            <td>
+              <code>${stopId}</code>
+              <button class="copy-btn" onclick="copyText('${stopId}')">複製</button>
             </td>
           `;
-
-          stopListBody.appendChild(tr);
-        }
-
-        statusEl.classList.add('hidden');
-        resultsTable.classList.remove('hidden');
+          bodyEl.appendChild(tr);
+        });
 
       } catch (err) {
         console.error(err);
-        statusEl.innerText = `查詢失敗 (${err.message})，請檢查網絡連線或 API 回應。`;
+        statusEl.innerText = `查詢失敗，請檢查網路連線或路線編號。`;
       }
     }
 
-    function copyToClipboard(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-
-      const toast = document.getElementById('toast');
-      toast.innerText = `已複製 ID: ${text}`;
-      toast.classList.remove('opacity-0');
-      setTimeout(() => {
-        toast.classList.add('opacity-0');
-      }, 1800);
+    function copyText(text) {
+      navigator.clipboard.writeText(text);
+      alert('已複製 Stop ID: ' + text);
     }
-
-    window.onload = initStopMap;
   </script>
 </body>
 </html>
