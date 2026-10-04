@@ -146,23 +146,41 @@
   </div>
 
   <script>
-    // 直接填入你查到的龍運精確 Stop ID
+    // 包含城巴 6 位數 ID、九巴 Hash ID 與龍運 Hash ID 的完美比對陣列
     const TARGET_STOPS = [
-      { id: '003209', kmbId: 'E16D49ECA536ECC6', lwbId: '229128E5EA86F3A2', name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH' },
-      { id: '003207', kmbId: '580D52F4D93CAD9B', lwbId: '2D1C73EF002336DC', name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH' },
-      { id: '', kmbId: '77FB32597CCD30F5', lwbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5' }
+      { 
+        id: '003209', 
+        kmbId: 'E16D49ECA536ECC6', 
+        lwbId: '229128E5EA86F3A2', 
+        name: '兆康路 (近中學，南行)', 
+        key: 'SIU_HONG_SOUTH' 
+      },
+      { 
+        id: '003207', 
+        kmbId: '580D52F4D93CAD9B', 
+        lwbId: '2D1C73EF002336DC', 
+        name: '欣田邨 (近欣田邨，北行)', 
+        key: 'YAN_TIN_NORTH' 
+      },
+      { 
+        id: '', 
+        kmbId: '77FB32597CCD30F5', 
+        lwbId: '77FB32597CCD30F5', 
+        name: '兆康苑總站', 
+        key: '77FB32597CCD30F5' 
+      }
     ];
 
-    const LWB_ROUTES = ['A34', 'E33P', 'E36C', 'NA33'];
+    const LWB_ROUTES = ['A33X', 'A34', 'E33P', 'E36C', 'NA33', 'N30', 'R33'];
 
     const ALL_ROUTES = [
-      'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '960C', 'N260', 'P960', 'SP5A',
+      'A33X', 'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '960C', 'N260', 'P960', 'SP5A',
       '50', '50R', '55', '56', '56A', '950', '955', 'B3A', 'N50', 'SP5B',
       '52X', '57M', '58M', '58X', '59M', '59X', '60M', '60X', '61M', '61X', '62X', '63X', 
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
 
-    // 城巴 ETA 查詢
+    // 城巴（CTB）專屬 ETA 查詢
     async function fetchCtbEta(stopId, route) {
       if (!stopId || stopId.length > 6) return [];
       try {
@@ -179,11 +197,11 @@
       }
     }
 
-    // 查詢九巴及龍運 ETA
+    // 九巴（KMB）及龍運（LWB）併行查詢
     async function fetchKmbLwbStopEta(stopObj) {
       const promises = [];
 
-      // 1. 查詢九巴 API
+      // 1. 查詢九巴車站 Hash ID
       if (stopObj.kmbId) {
         promises.push(
           fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.kmbId}`)
@@ -197,10 +215,10 @@
         );
       }
 
-      // 2. 查詢龍運專屬 API (用剛查到的 lwbId)
-      if (stopObj.lwbId) {
+      // 2. 查詢龍運專屬車站 Hash ID
+      if (stopObj.lwbId && stopObj.lwbId !== stopObj.kmbId) {
         promises.push(
-          fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${stopObj.lwbId}`)
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.lwbId}`)
             .then(res => res.ok ? res.json() : { data: [] })
             .then(data => (data.data || []).filter(i => i.eta).map(i => ({
               ...i,
@@ -217,6 +235,7 @@
       return combined;
     }
 
+    // 整合三巴資料
     async function fetchStopAllRoutes(stopObj) {
       const ctbPromises = ALL_ROUTES.map(r => fetchCtbEta(stopObj.id, r));
       const kmbLwbPromise = fetchKmbLwbStopEta(stopObj);
@@ -264,8 +283,8 @@
 
             routes.forEach(routeName => {
               const matched = routeMap[routeName];
-              
-              // 時間與重複濾除
+
+              // 重複過濾與時間排序
               const uniqueList = [];
               const seenTimes = new Set();
               matched.forEach(item => {
@@ -296,7 +315,7 @@
               let tagText = '九巴';
               let tagClass = 'kmb-tag';
 
-              if (bus1.co === 'LWB') {
+              if (bus1.co === 'LWB' || LWB_ROUTES.includes(routeName)) {
                 companyClass = 'lwb';
                 tagText = '龍運';
                 tagClass = 'lwb-tag';
