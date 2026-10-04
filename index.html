@@ -209,7 +209,7 @@
       }
     }
 
-    // ---【依 0 分鐘分組（新段落計算邏輯）推算線上所有巴士】---
+    // ---【長途路段補算 + 0分鐘分組 雙重保護演算法】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -220,7 +220,6 @@
         const now = new Date();
         const targetDir = (bound === 'outbound') ? 'O' : 'I';
 
-        // 整理每個車站 seq 的即時到站剩餘時間 (以首班到站數據為主)
         const stopEtaMap = {};
         etaData.data.forEach(item => {
           if (item.dir === targetDir && item.eta && item.seq) {
@@ -232,6 +231,7 @@
                 stopEtaMap[item.seq] = {
                   diffMinutes: Math.max(0, diffMinutes),
                   dest: item.dest_tc,
+                  rawEtaTime: item.eta, // 唯一車輛時間戳
                   etaTimeStr: etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
               }
@@ -242,9 +242,9 @@
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
 
+        const drawnBusTimestamps = new Set();
         let busCount = 0;
 
-        // 從起點站依序往終點站掃描
         for (let i = 0; i < currentRouteStops.length - 1; i++) {
           const seqA = currentRouteStops[i].seq;
           const seqB = currentRouteStops[i + 1].seq;
@@ -253,18 +253,30 @@
           const etaB = stopEtaMap[seqB];
 
           if (etaA && etaB) {
-            // 邏輯核心：當發現倒數時間近乎 0 分鐘，且下一個車站時間遞增 (>0 分鐘)
-            // 代表這是一部巴士的當前區間！
-            if (etaA.diffMinutes <= 1.0 && etaB.diffMinutes > 0) {
+            const diffAB = etaB.diffMinutes - etaA.diffMinutes;
+            const busUniqueKey = etaB.rawEtaTime;
+
+            // 觸發條件一：近站即將抵達 (0 - 1 分鐘)
+            const isNearStation = (etaA.diffMinutes <= 1.0 && etaB.diffMinutes > 0);
+
+            // 觸發條件二（新）：長途公路/大站間路段 (B站剩餘時間 < 15 分鐘，且先前未曾繪製此班車)
+            const isLongDistanceSegment = (
+              etaB.diffMinutes <= 15.0 && 
+              diffAB > 0 && 
+              !drawnBusTimestamps.has(busUniqueKey)
+            );
+
+            if ((isNearStation || isLongDistanceSegment) && !drawnBusTimestamps.has(busUniqueKey)) {
+              drawnBusTimestamps.add(busUniqueKey);
               busCount++;
 
               const coordA = allStopsMap[currentRouteStops[i].stop];
               const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
               if (coordA && coordB) {
-                const diffAB = etaB.diffMinutes - etaA.diffMinutes;
+                // 計算兩站之間的進度比例 Ratio
                 let ratio = diffAB > 0 ? (1 - (etaA.diffMinutes / diffAB)) : 0.5;
-                ratio = Math.max(0.1, Math.min(0.9, ratio));
+                ratio = Math.max(0.08, Math.min(0.92, ratio));
 
                 const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
                 const lineDistance = turf.length(segment, { units: 'kilometers' });
@@ -273,7 +285,7 @@
 
                 const marker = L.marker([busLat, busLng], { icon: createBusIcon(route, busCount) })
                   .addTo(map)
-                  .bindPopup(`<b>九巴 ${route} (#${busCount})</b><br>往：${etaA.dest}<br>當前位置：${coordA.name} ➔ ${coordB.name}<br>下一站預計：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
+                  .bindPopup(`<b>九巴 ${route} (#${busCount})</b><br>往：${etaA.dest}<br>當前路段：${coordA.name} ➔ ${coordB.name}<br>區間距離：${lineDistance.toFixed(1)} km<br>下一站預計：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
 
                 busMarkers.push(marker);
               }
@@ -283,7 +295,7 @@
 
         const selectEl = document.getElementById('boundSelect');
         const destName = selectEl.options[selectEl.selectedIndex] ? selectEl.options[selectEl.selectedIndex].text : '';
-        statusEl.innerText = `${route} (${destName})：全線發現 ${busCount} 部車`;
+        statusEl.innerText = `${route} (${destName})：全線精確定位 ${busCount} 部車`;
 
       } catch (err) {
         console.error(err);
