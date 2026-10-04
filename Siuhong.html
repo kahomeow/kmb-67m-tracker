@@ -141,15 +141,15 @@
     </div>
 
     <div class="eta-list" id="etaContainer">
-      <div class="status-msg">正在初始化龍運車站數據...</div>
+      <div class="status-msg">正在載入班次...</div>
     </div>
   </div>
 
   <script>
     const TARGET_STOPS = [
-      { id: '003209', kmbId: 'E16D49ECA536ECC6', lwbStops: new Set(), name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH' },
-      { id: '003207', kmbId: '580D52F4D93CAD9B', lwbStops: new Set(), name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH' },
-      { id: '', kmbId: '77FB32597CCD30F5', lwbStops: new Set(), name: '兆康苑總站', key: '77FB32597CCD30F5' }
+      { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH', lwbIds: new Set(['E16D49ECA536ECC6', '003209']) },
+      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH', lwbIds: new Set(['580D52F4D93CAD9B', '003207']) },
+      { id: '', kmbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5', lwbIds: new Set(['77FB32597CCD30F5']) }
     ];
 
     const LWB_ROUTES = ['A34', 'E33P', 'E36C', 'NA33'];
@@ -161,13 +161,13 @@
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
 
-    // 初始化：先向龍運 API 查出 A34、E33P 等路線來回全部車站，自動配對目標車站的正確 LWB Stop ID
+    // 啟動時先下載龍運專屬路線的站點，獲取確切的 LWB Stop ID
     async function initLwbStops() {
       try {
-        const fetchPromises = [];
+        const promises = [];
         LWB_ROUTES.forEach(route => {
           ['outbound', 'inbound'].forEach(bound => {
-            fetchPromises.push(
+            promises.push(
               fetch(`https://data.etabus.gov.hk/v1/transport/lwb/route-stop/${route}/${bound}/1`)
                 .then(res => res.ok ? res.json() : { data: [] })
                 .catch(() => ({ data: [] }))
@@ -175,25 +175,12 @@
           });
         });
 
-        const results = await Promise.all(fetchPromises);
-        
-        // 將撈出來的龍運所有 Stop ID 與我們的目標站做比對配對
+        const results = await Promise.all(promises);
         results.forEach(res => {
           (res.data || []).forEach(st => {
-            // 九巴與龍運在 API 上的站點 ID 配對邏輯
-            if (st.stop === 'E16D49ECA536ECC6' || st.stop === '003209') {
-              TARGET_STOPS[0].lwbStops.add(st.stop);
-            }
-            if (st.stop === '580D52F4D93CAD9B' || st.stop === '003207') {
-              TARGET_STOPS[1].lwbStops.add(st.stop);
-            }
-            if (st.stop === '77FB32597CCD30F5') {
-              TARGET_STOPS[2].lwbStops.add(st.stop);
-            }
-            // 預備備用直接配對
             TARGET_STOPS.forEach(target => {
               if (st.stop === target.kmbId || st.stop === target.id) {
-                target.lwbStops.add(st.stop);
+                target.lwbIds.add(st.stop);
               }
             });
           });
@@ -222,11 +209,11 @@
       }
     }
 
-    // 九巴 (KMB) & 龍運 (LWB) 車站 ETA 查詢
+    // 查詢九巴及龍運 ETA
     async function fetchKmbLwbStopEta(stopObj) {
       const promises = [];
 
-      // 1. 查詢九巴
+      // 1. 查詢九巴 API
       if (stopObj.kmbId) {
         promises.push(
           fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.kmbId}`)
@@ -240,18 +227,11 @@
         );
       }
 
-      // 2. 查詢龍運 (利用配對好的 LWB Stop ID 集合發起請求)
-      const lwbStopIds = Array.from(stopObj.lwbStops);
-      if (lwbStopIds.length === 0) {
-        // 若完全無抓到特殊 ID，則用原本的 kmbId 與 id 當備用
-        if (stopObj.kmbId) lwbStopIds.push(stopObj.kmbId);
-        if (stopObj.id) lwbStopIds.push(stopObj.id);
-      }
-
-      lwbStopIds.forEach(stopId => {
-        if (stopId) {
+      // 2. 查詢龍運專屬 API
+      stopObj.lwbIds.forEach(id => {
+        if (id) {
           promises.push(
-            fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${stopId}`)
+            fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${id}`)
               .then(res => res.ok ? res.json() : { data: [] })
               .then(data => (data.data || []).filter(i => i.eta).map(i => ({
                 ...i,
@@ -316,8 +296,8 @@
 
             routes.forEach(routeName => {
               const matched = routeMap[routeName];
-
-              // 去重並按時間排序
+              
+              // 時間與重複濾除
               const uniqueList = [];
               const seenTimes = new Set();
               matched.forEach(item => {
