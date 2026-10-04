@@ -209,7 +209,7 @@
       }
     }
 
-    // ---【長途路段補算 + 0分鐘分組 雙重保護演算法】---
+    // ---【公里距離 + 站序遞增時間鏈 (防短途重覆) 雙重演算】---
     async function calculateBusPositions(route, bound, serviceType) {
       const statusEl = document.getElementById('status');
       try {
@@ -231,7 +231,6 @@
                 stopEtaMap[item.seq] = {
                   diffMinutes: Math.max(0, diffMinutes),
                   dest: item.dest_tc,
-                  rawEtaTime: item.eta, // 唯一車輛時間戳
                   etaTimeStr: etaTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
               }
@@ -242,10 +241,13 @@
         busMarkers.forEach(m => map.removeLayer(m));
         busMarkers = [];
 
-        const drawnBusTimestamps = new Set();
         let busCount = 0;
+        let lastDrawnSeq = -1; // 記錄上一部繪製巴士的站序，防止短途連續重複標註
 
         for (let i = 0; i < currentRouteStops.length - 1; i++) {
+          // 如果目前的車站離上一個畫出巴士的車站太近，跳過比對，確保同一部車不重複繪製
+          if (i <= lastDrawnSeq) continue;
+
           const seqA = currentRouteStops[i].seq;
           const seqB = currentRouteStops[i + 1].seq;
 
@@ -254,28 +256,26 @@
 
           if (etaA && etaB) {
             const diffAB = etaB.diffMinutes - etaA.diffMinutes;
-            const busUniqueKey = etaB.rawEtaTime;
 
-            // 觸發條件一：近站即將抵達 (0 - 1 分鐘)
-            const isNearStation = (etaA.diffMinutes <= 1.0 && etaB.diffMinutes > 0);
+            const coordA = allStopsMap[currentRouteStops[i].stop];
+            const coordB = allStopsMap[currentRouteStops[i + 1].stop];
 
-            // 觸發條件二（新）：長途公路/大站間路段 (B站剩餘時間 < 15 分鐘，且先前未曾繪製此班車)
-            const isLongDistanceSegment = (
-              etaB.diffMinutes <= 15.0 && 
-              diffAB > 0 && 
-              !drawnBusTimestamps.has(busUniqueKey)
-            );
+            if (coordA && coordB && diffAB > 0) {
+              const fromPoint = turf.point([coordA.lng, coordA.lat]);
+              const toPoint = turf.point([coordB.lng, coordB.lat]);
+              const distanceKm = turf.distance(fromPoint, toPoint, { units: 'kilometers' });
 
-            if ((isNearStation || isLongDistanceSegment) && !drawnBusTimestamps.has(busUniqueKey)) {
-              drawnBusTimestamps.add(busUniqueKey);
-              busCount++;
+              // 短途條件：距離 < 2.0 km 且 A 站倒數 <= 0.8 分鐘（代表車剛剛離開 A 站，正往 B 站移動）
+              const isShortSegmentBus = (distanceKm < 2.0 && etaA.diffMinutes <= 0.8 && etaB.diffMinutes > 0);
 
-              const coordA = allStopsMap[currentRouteStops[i].stop];
-              const coordB = allStopsMap[currentRouteStops[i + 1].stop];
+              // 長途條件：距離 >= 2.0 km，車輛已駛離 A 站，正行駛於長途公路中間
+              const isLongHighwayBus = (distanceKm >= 2.0 && etaA.diffMinutes <= diffAB && etaB.diffMinutes > 0);
 
-              if (coordA && coordB) {
-                // 計算兩站之間的進度比例 Ratio
-                let ratio = diffAB > 0 ? (1 - (etaA.diffMinutes / diffAB)) : 0.5;
+              if (isShortSegmentBus || isLongHighwayBus) {
+                busCount++;
+                lastDrawnSeq = i; // 鎖定目前站序，同一部車不允許在相鄰站重複繪製
+
+                let ratio = 1 - (etaA.diffMinutes / diffAB);
                 ratio = Math.max(0.08, Math.min(0.92, ratio));
 
                 const segment = turf.lineString([[coordA.lng, coordA.lat], [coordB.lng, coordB.lat]]);
@@ -285,7 +285,7 @@
 
                 const marker = L.marker([busLat, busLng], { icon: createBusIcon(route, busCount) })
                   .addTo(map)
-                  .bindPopup(`<b>九巴 ${route} (#${busCount})</b><br>往：${etaA.dest}<br>當前路段：${coordA.name} ➔ ${coordB.name}<br>區間距離：${lineDistance.toFixed(1)} km<br>下一站預計：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
+                  .bindPopup(`<b>九巴 ${route} (#${busCount})</b><br>往：${etaA.dest}<br>當前路段：${coordA.name} ➔ ${coordB.name}<br>兩站距離：<b>${distanceKm.toFixed(2)} km</b><br>下一站預計：${Math.ceil(etaB.diffMinutes)} 分鐘 (${etaB.etaTimeStr})`);
 
                 busMarkers.push(marker);
               }
