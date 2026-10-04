@@ -161,6 +161,7 @@
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
 
+    // 城巴 ETA 查詢
     async function fetchCtbEta(stopId, route) {
       if (!stopId || stopId.length > 6) return [];
       try {
@@ -177,20 +178,37 @@
       }
     }
 
-    async function fetchKmbStopEta(kmbStopId) {
+    // 九巴 (KMB) & 龍運 (LWB) 車站 ETA 查詢
+    async function fetchKmbLwbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
-        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${kmbStopId}`);
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => {
-          const isLwb = LWB_ROUTES.includes(i.route);
-          return {
+        const [kmbRes, lwbRes] = await Promise.all([
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${kmbStopId}`),
+          fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${kmbStopId}`)
+        ]);
+
+        let kmbList = [];
+        let lwbList = [];
+
+        if (kmbRes.ok) {
+          const kmbData = await kmbRes.json();
+          kmbList = (kmbData.data || []).filter(i => i.eta).map(i => ({
             ...i,
-            co: isLwb ? 'LWB' : 'KMB',
+            co: LWB_ROUTES.includes(i.route) ? 'LWB' : 'KMB',
             dest_tc: i.dest_tc || '目的地'
-          };
-        });
+          }));
+        }
+
+        if (lwbRes.ok) {
+          const lwbData = await lwbRes.json();
+          lwbList = (lwbData.data || []).filter(i => i.eta).map(i => ({
+            ...i,
+            co: 'LWB',
+            dest_tc: i.dest_tc || '目的地'
+          }));
+        }
+
+        return [...kmbList, ...lwbList];
       } catch (err) {
         return [];
       }
@@ -198,16 +216,16 @@
 
     async function fetchStopAllRoutes(stopObj) {
       const ctbPromises = ALL_ROUTES.map(r => fetchCtbEta(stopObj.id, r));
-      const kmbPromise = fetchKmbStopEta(stopObj.kmbId);
+      const kmbLwbPromise = fetchKmbLwbStopEta(stopObj.kmbId);
 
-      const [ctbResults, kmbResults] = await Promise.all([
+      const [ctbResults, kmbLwbResults] = await Promise.all([
         Promise.all(ctbPromises),
-        kmbPromise
+        kmbLwbPromise
       ]);
 
       let combined = [];
       ctbResults.forEach(list => { combined = combined.concat(list); });
-      combined = combined.concat(kmbResults);
+      combined = combined.concat(kmbLwbResults);
 
       return combined;
     }
