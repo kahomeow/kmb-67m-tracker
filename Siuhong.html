@@ -146,10 +146,11 @@
   </div>
 
   <script>
+    // 直接填入你查到的龍運精確 Stop ID
     const TARGET_STOPS = [
-      { id: '003209', kmbId: 'E16D49ECA536ECC6', name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH', lwbIds: new Set(['E16D49ECA536ECC6', '003209']) },
-      { id: '003207', kmbId: '580D52F4D93CAD9B', name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH', lwbIds: new Set(['580D52F4D93CAD9B', '003207']) },
-      { id: '', kmbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5', lwbIds: new Set(['77FB32597CCD30F5']) }
+      { id: '003209', kmbId: 'E16D49ECA536ECC6', lwbId: '229128E5EA86F3A2', name: '兆康路 (近中學，南行)', key: 'SIU_HONG_SOUTH' },
+      { id: '003207', kmbId: '580D52F4D93CAD9B', lwbId: '2D1C73EF002336DC', name: '欣田邨 (近欣田邨，北行)', key: 'YAN_TIN_NORTH' },
+      { id: '', kmbId: '77FB32597CCD30F5', lwbId: '77FB32597CCD30F5', name: '兆康苑總站', key: '77FB32597CCD30F5' }
     ];
 
     const LWB_ROUTES = ['A34', 'E33P', 'E36C', 'NA33'];
@@ -160,37 +161,6 @@
       '52X', '57M', '58M', '58X', '59M', '59X', '60M', '60X', '61M', '61X', '62X', '63X', 
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
     ];
-
-    // 啟動時先下載龍運專屬路線的站點，獲取確切的 LWB Stop ID
-    async function initLwbStops() {
-      try {
-        const promises = [];
-        LWB_ROUTES.forEach(route => {
-          ['outbound', 'inbound'].forEach(bound => {
-            promises.push(
-              fetch(`https://data.etabus.gov.hk/v1/transport/lwb/route-stop/${route}/${bound}/1`)
-                .then(res => res.ok ? res.json() : { data: [] })
-                .catch(() => ({ data: [] }))
-            );
-          });
-        });
-
-        const results = await Promise.all(promises);
-        results.forEach(res => {
-          (res.data || []).forEach(st => {
-            TARGET_STOPS.forEach(target => {
-              if (st.stop === target.kmbId || st.stop === target.id) {
-                target.lwbIds.add(st.stop);
-              }
-            });
-          });
-        });
-      } catch (err) {
-        console.error('初始化龍運車站失敗:', err);
-      } finally {
-        loadAllEta();
-      }
-    }
 
     // 城巴 ETA 查詢
     async function fetchCtbEta(stopId, route) {
@@ -227,21 +197,19 @@
         );
       }
 
-      // 2. 查詢龍運專屬 API
-      stopObj.lwbIds.forEach(id => {
-        if (id) {
-          promises.push(
-            fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${id}`)
-              .then(res => res.ok ? res.json() : { data: [] })
-              .then(data => (data.data || []).filter(i => i.eta).map(i => ({
-                ...i,
-                co: 'LWB',
-                dest_tc: i.dest_tc || '目的地'
-              })))
-              .catch(() => [])
-          );
-        }
-      });
+      // 2. 查詢龍運專屬 API (用剛查到的 lwbId)
+      if (stopObj.lwbId) {
+        promises.push(
+          fetch(`https://data.etabus.gov.hk/v1/transport/lwb/stop-eta/${stopObj.lwbId}`)
+            .then(res => res.ok ? res.json() : { data: [] })
+            .then(data => (data.data || []).filter(i => i.eta).map(i => ({
+              ...i,
+              co: 'LWB',
+              dest_tc: i.dest_tc || '目的地'
+            })))
+            .catch(() => [])
+        );
+      }
 
       const results = await Promise.all(promises);
       let combined = [];
@@ -366,8 +334,7 @@
       }
     }
 
-    // 啟動程序
-    initLwbStops();
+    loadAllEta();
     setInterval(loadAllEta, 15000);
   </script>
 </body>
