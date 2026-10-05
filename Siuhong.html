@@ -146,7 +146,7 @@
   </div>
 
   <script>
-    // 包含城巴 6 位數 ID、九巴 Hash ID 與龍運 Hash ID 的完美比對陣列
+    // 兆康 3 大目標車站
     const TARGET_STOPS = [
       { 
         id: '003209', 
@@ -173,8 +173,9 @@
 
     const LWB_ROUTES = ['A33X', 'A34', 'E33P', 'E36C', 'NA33', 'N30', 'R33'];
 
+    // 包含兆康苑總站的所有常規及晨早特車路線
     const ALL_ROUTES = [
-      'A33X', 'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '960C', 'N260', 'P960', 'SP5A',
+      'A33X', 'A34', 'E33P', 'E36C', 'NA33', '67M', '67X', '261P', '267X', '260R', '960C', 'N260', 'P960', 'SP5A',
       '50', '50R', '55', '56', '56A', '950', '955', 'B3A', 'N50', 'SP5B',
       '52X', '57M', '58M', '58X', '59M', '59X', '60M', '60X', '61M', '61X', '62X', '63X', 
       '66M', '66X', '258D', '259D', '260X', '263', '962X', 'N962'
@@ -197,11 +198,10 @@
       }
     }
 
-    // 九巴（KMB）及龍運（LWB）併行查詢
+    // 九巴與龍運專屬 ETA 查詢
     async function fetchKmbLwbStopEta(stopObj) {
       const promises = [];
 
-      // 1. 查詢九巴車站 Hash ID
       if (stopObj.kmbId) {
         promises.push(
           fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.kmbId}`)
@@ -215,7 +215,6 @@
         );
       }
 
-      // 2. 查詢龍運專屬車站 Hash ID
       if (stopObj.lwbId && stopObj.lwbId !== stopObj.kmbId) {
         promises.push(
           fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.lwbId}`)
@@ -235,7 +234,6 @@
       return combined;
     }
 
-    // 整合三巴資料
     async function fetchStopAllRoutes(stopObj) {
       const ctbPromises = ALL_ROUTES.map(r => fetchCtbEta(stopObj.id, r));
       const kmbLwbPromise = fetchKmbLwbStopEta(stopObj);
@@ -268,7 +266,7 @@
         let html = '';
 
         filteredStops.forEach((stop, index) => {
-          const rawList = results[index] || [];
+          let rawList = results[index] || [];
 
           html += `<div class="stop-group-title">${stop.name}</div>`;
 
@@ -282,13 +280,19 @@
             const routes = Object.keys(routeMap).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
             routes.forEach(routeName => {
-              const matched = routeMap[routeName];
+              let matched = routeMap[routeName];
 
-              // 重複過濾與時間排序
+              // 若有開往目的地（非兆康苑）的班次，優先過濾掉落客班次
+              const outboundOnly = matched.filter(i => i.dest_tc && !i.dest_tc.includes('兆康'));
+              if (outboundOnly.length > 0) {
+                matched = outboundOnly;
+              }
+
+              // 去重與時間排序
               const uniqueList = [];
               const seenTimes = new Set();
               matched.forEach(item => {
-                const key = `${item.route}_${item.eta}`;
+                const key = `${item.route}_${item.eta}_${item.dest_tc}`;
                 if (!seenTimes.has(key)) {
                   seenTimes.add(key);
                   uniqueList.push(item);
