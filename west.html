@@ -29,7 +29,7 @@
       margin-bottom: 20px;
     }
     .header {
-      background: #0055aa; /* 港島線主題藍 */
+      background: #0055aa;
       color: white;
       padding: 20px;
       text-align: center;
@@ -128,9 +128,11 @@
           <option value="ALL">📍 所有車站 (一次看全部)</option>
           <option value="CENTRAL_POTTINGER">中環 - 砵典乍街 (CW776)</option>
           <option value="CENTRAL_LI_YUEN">中環 - 利源東街</option>
-          <option value="ADMIRALTY_ADM">金鐘 - 港鐵 B 出口 / 海富中心</option>
+          <option value="ADMIRALTY_STATION">金鐘 - 港鐵 B 出口 / 海富中心</option>
+          <option value="ADMIRALTY_PACIFIC">金鐘 - 太古廣場</option>
           <option value="CWB_YEE_WO">銅鑼灣 - 怡和街</option>
-          <option value="CWB_CANAL_TIN_LOK">銅鑼灣 - 堅拿道東 / 天樂里</option>
+          <option value="CWB_CANAL">銅鑼灣 - 堅拿道東</option>
+          <option value="CWB_TIN_LOK">銅鑼灣 - 天樂里 (WC665)</option>
         </select>
       </div>
 
@@ -143,11 +145,10 @@
   </div>
 
   <script>
-    // 站點清單 (精確配對你提供的 KMB Hash ID 與 Citybus 6 位數 ID)
     const TARGET_STOPS = [
       {
         key: 'CENTRAL_POTTINGER',
-        name: '中環 - 砵典乍街',
+        name: '中環 - 砵典乍街 (CW776)',
         kmbId: '4AA350AD8FFF4786',
         ctbId: '001034'
       },
@@ -158,10 +159,16 @@
         ctbId: '001055'
       },
       {
-        key: 'ADMIRALTY_ADM',
-        name: '金鐘 - 海富中心 / 港鐵 B 出口',
+        key: 'ADMIRALTY_STATION',
+        name: '金鐘 - 港鐵 B 出口 / 海富中心',
         kmbId: '55371F963B58DC5B',
         ctbId: '001139'
+      },
+      {
+        key: 'ADMIRALTY_PACIFIC',
+        name: '金鐘 - 太古廣場',
+        kmbId: 'A8B2FF2FF1AD350B',
+        ctbId: '001142'
       },
       {
         key: 'CWB_YEE_WO',
@@ -170,21 +177,27 @@
         ctbId: '002554'
       },
       {
-        key: 'CWB_CANAL_TIN_LOK',
-        name: '銅鑼灣 - 堅拿道東 / 天樂里',
-        kmbId: 'D073FFE1CF019F1F', // 天樂里 (WC665)
-        ctbId: '002440'            // 堅拿道東
+        key: 'CWB_CANAL',
+        name: '銅鑼灣 - 堅拿道東',
+        kmbId: '',
+        ctbId: '002440'
+      },
+      {
+        key: 'CWB_TIN_LOK',
+        name: '銅鑼灣 - 天樂里 (WC665)',
+        kmbId: 'D073FFE1CF019F1F',
+        ctbId: '002450'
       }
     ];
 
-    // 主要過海往新界西/屯門路線清單
+    // 加入 930 系列路線 (930, 930A, 930B, 930X, N930)
     const ALL_ROUTES = [
       '960', '960A', '960B', '960C', '960P', '960S', '960X', 'P960',
       '961', '961P', '962', '962A', '962G', '962P', '962X', 'X962',
-      '950', '952', '952P', '955', 'N952', 'N960', 'N962', '968', '969'
+      '950', '952', '952P', '955', 'N952', 'N960', 'N962',
+      '930', '930A', '930B', '930X', 'N930'
     ];
 
-    // 城巴（CTB）專屬 ETA 查詢
     async function fetchCtbEta(stopId, route) {
       if (!stopId) return [];
       try {
@@ -201,7 +214,6 @@
       }
     }
 
-    // 九巴（KMB）專屬 ETA 查詢
     async function fetchKmbStopEta(kmbStopId) {
       if (!kmbStopId) return [];
       try {
@@ -266,7 +278,6 @@
             routes.forEach(routeName => {
               let matched = routeMap[routeName];
 
-              // 去重與時間排序
               const uniqueList = [];
               const seenTimes = new Set();
               matched.forEach(item => {
