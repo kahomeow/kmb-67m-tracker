@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>港島往屯門 巴士到站時間表</title>
+  <title>港島往屯門/元朗/天水圍 巴士到站時間表</title>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -120,7 +120,7 @@
 
   <div class="card">
     <div class="header">
-      <h1>🇭🇰 港島往屯門 巴士到站時間</h1>
+      <h1>🇭🇰 港島往屯門/元朗/天水圍 巴士到站時間</h1>
       <p>📍 選擇中環 / 金鐘 / 銅鑼灣車站觀測過海路線</p>
 
       <div class="select-container">
@@ -167,7 +167,7 @@
       {
         key: 'ADMIRALTY_PACIFIC',
         name: '金鐘 - 太古廣場',
-        kmbId: 'A8B2FF2FF1AD350B',
+        kmbId: '1E10D70B8D3AC179', // 修正為確切之金鐘太古廣場九巴 Hash ID
         ctbId: '001142'
       },
       {
@@ -186,16 +186,21 @@
         key: 'CWB_TIN_LOK',
         name: '銅鑼灣 - 天樂里 (WC665)',
         kmbId: 'D073FFE1CF019F1F',
-        ctbId: '002450'
+        ctbId: ''                 // 天樂里僅設九巴站點，無城巴站點
       }
     ];
 
-    // 加入 930 系列路線 (930, 930A, 930B, 930X, N930)
+    // 精確指定的屯門、荃灣葵青、元朗、天水圍過海路線
     const ALL_ROUTES = [
+      // 屯門 / 葵青系列
       '960', '960A', '960B', '960C', '960P', '960S', '960X', 'P960',
       '961', '961P', '962', '962A', '962G', '962P', '962X', 'X962',
       '950', '952', '952P', '955', 'N952', 'N960', 'N962',
-      '930', '930A', '930B', '930X', 'N930'
+      '930', '930A', '930B', '930X', 'N930',
+      // 元朗 968 系列
+      '968', '968A', '968X',
+      // 天水圍 969 系列
+      '969', '969A', '969B', '969C', '969N', '969P', '969X', 'N969'
     ];
 
     async function fetchCtbEta(stopId, route) {
@@ -220,7 +225,7 @@
         const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${kmbStopId}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return (data.data || []).filter(i => i.eta).map(i => ({
+        return (data.data || []).filter(i => i.eta && ALL_ROUTES.includes(i.route)).map(i => ({
           ...i,
           co: 'KMB',
           dest_tc: i.dest_tc || '目的地'
@@ -231,7 +236,7 @@
     }
 
     async function fetchStopAllRoutes(stopObj) {
-      const ctbPromises = ALL_ROUTES.map(r => fetchCtbEta(stopObj.ctbId, r));
+      const ctbPromises = stopObj.ctbId ? ALL_ROUTES.map(r => fetchCtbEta(stopObj.ctbId, r)) : [];
       const kmbPromise = fetchKmbStopEta(stopObj.kmbId);
 
       const [ctbResults, kmbResults] = await Promise.all([
